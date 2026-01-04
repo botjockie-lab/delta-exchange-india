@@ -444,6 +444,7 @@ class OptionsStrategy:
         self.max_positions = int(os.getenv("MAX_POSITIONS", "4"))             # Maximum concurrent positions
         self.option_type = os.getenv("OPTION_TYPE", "BOTH").upper()           # CALL, PUT, or BOTH
         self.adx_threshold = float(os.getenv("ADX_THRESHOLD", "25"))
+        self.use_adx_filter = os.getenv("USE_ADX_FILTER", "True").lower() == "true"
         self.adx_period = int(os.getenv("ADX_PERIOD", "14"))
         self.bb_period = int(os.getenv("BB_PERIOD", "20"))
         self.bb_std_dev = float(os.getenv("BB_STD_DEV", "2.0"))
@@ -684,16 +685,16 @@ class OptionsStrategy:
         if not bb:
             return None
         
-        # Calculate ADX
-        adx = self.analyzer.calculate_adx(candles, period=self.adx_period)
-        
+        # Calculate ADX if filter is enabled
+        adx = None
+        if self.use_adx_filter:
+            adx = self.analyzer.calculate_adx(candles, period=self.adx_period)
+
         # Calculate 200 EMA if filter is enabled
         ema = None
         if self.use_ema_filter:
             ema = self.analyzer.calculate_ema(candles, period=self.ema_period)
         
-        ema_str = f"{ema:.2f}" if ema is not None else "N/A"
-
         logger.info(
             f"Candle {symbol}: "
             f"Time={datetime.fromtimestamp(analysis_candle.get('time')).strftime('%H:%M')} "
@@ -702,9 +703,12 @@ class OptionsStrategy:
             f"V={analysis_candle.get('volume')}"
         )
 
-        log_message = f"BB {symbol}: Upper={bb['upper_band']:.2f} Middle={bb['middle_band']:.2f} Lower={bb['lower_band']:.2f} | ADX={adx:.2f}"
+        log_message = f"BB {symbol}: Upper={bb['upper_band']:.2f} Middle={bb['middle_band']:.2f} Lower={bb['lower_band']:.2f}"
+        if self.use_adx_filter:
+            log_message += f" | ADX={adx:.2f}" if adx is not None else " | ADX=N/A"
         if self.use_ema_filter:
-            log_message += f" | EMA={ema_str}"
+            ema_str = f"{ema:.2f}" if ema is not None else "N/A"
+            log_message += f" | EMA200={ema_str}"
         logger.info(log_message)
 
         logger.info(f"Chart: https://www.delta.exchange/app/tradingview/mark-chart/options/BTC/{symbol}")
@@ -739,8 +743,9 @@ class OptionsStrategy:
             pass
         
         # Filter by ADX
-        if adx < self.adx_threshold:
-            return None
+        if self.use_adx_filter:
+            if adx is None or adx < self.adx_threshold:
+                return None
         
         # Current price for validation
         current_price = float(mark_price or analysis_candle.get('close') or 0)
@@ -775,9 +780,13 @@ class OptionsStrategy:
             
             action = 'BUY_CALL' if option_type == 'call' else 'BUY_PUT'
             
-            reason = f'Bullish reversal from lower BB at {bb["lower_band"]:.2f}'
+            reason_parts = [f'Bullish reversal from lower BB at {bb["lower_band"]:.2f}']
+            if self.use_adx_filter:
+                reason_parts.append('with ADX confirmation')
             if self.use_ema_filter:
-                reason += ' and above 200 EMA'
+                reason_parts.append('and above 200 EMA')
+            
+            reason = ' '.join(reason_parts)
 
             signal = TradingSignal(
                 action=action,
@@ -1029,6 +1038,7 @@ class OptionsStrategy:
         logger.info(f"Max Positions: {self.max_positions}")
         logger.info(f"Option Type: {self.option_type}")
         logger.info(f"ADX Threshold: {self.adx_threshold}")
+        logger.info(f"ADX Filter Enabled: {self.use_adx_filter}")
         logger.info(f"EMA Period: {self.ema_period}")
         logger.info(f"EMA Filter Enabled: {self.use_ema_filter}")
         logger.info(f"Take Profit: {self.take_profit_percent}%")

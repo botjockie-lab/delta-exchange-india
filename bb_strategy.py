@@ -451,6 +451,14 @@ class OptionsStrategy:
         self.ema_period = int(os.getenv("EMA_PERIOD", "200"))
         self.use_ema_filter = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
         self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
+
+        # Determine required candles
+        max_period = self.bb_period
+        if self.use_adx_filter:
+            max_period = max(max_period, 2 * self.adx_period + 1)
+        if self.use_ema_filter:
+            max_period = max(max_period, self.ema_period)
+        self.required_candles = max_period + 20 # Add a 20 candle buffer
         
         if self.option_type not in ['CALL', 'PUT', 'BOTH']:
             logger.warning(f"Invalid OPTION_TYPE '{self.option_type}', defaulting to BOTH")
@@ -662,8 +670,11 @@ class OptionsStrategy:
         product_id = option_data['product_id']
         mark_price = option_data['mark_price']
         
+        # Dynamically calculate lookback hours
+        lookback_hours = math.ceil(self.required_candles / 60) + 1 # Add 1 hour buffer
+
         # Get historical candles
-        candles_response = self.api.get_candles(symbol, resolution='1m', lookback_hours=5)
+        candles_response = self.api.get_candles(symbol, resolution='1m', lookback_hours=lookback_hours)
         
         if not candles_response.get('success') or not candles_response.get('result'):
             # logger.warning(f"No candle data for {symbol}")
@@ -673,7 +684,7 @@ class OptionsStrategy:
         candles.reverse()
         logger.info(f"Received {len(candles)} candles for {symbol}")
         
-        if len(candles) < max(self.bb_period, self.adx_period):
+        if len(candles) < max(self.bb_period, self.adx_period, self.ema_period):
             # logger.warning(f"Insufficient candle data for {symbol}: {len(candles)} candles")
             return None
         

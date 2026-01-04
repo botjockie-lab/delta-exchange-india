@@ -684,10 +684,8 @@ class OptionsStrategy:
             "product_id": signal.product_id,
             "product_symbol": signal.symbol,
             "size": self.position_size,
-            "side": "buy",
             "side": side,
             "order_type": "limit_order",
-            "limit_price": str(round(signal.entry_price, 2)),
             "stop_price": str(round(signal.entry_price, 2)),
             "limit_price": str(round(signal.entry_price * limit_buffer, 2)),
             
@@ -697,7 +695,8 @@ class OptionsStrategy:
             
             # Bracket Stop Loss
             "bracket_stop_loss_price": str(round(signal.stop_loss, 2)),
-            "bracket_stop_loss_limit_price": str(round(signal.stop_loss, 2)),
+            # Set limit price 5% beyond stop to ensure execution (marketable limit)
+            "bracket_stop_loss_limit_price": str(round(signal.stop_loss * (0.95 if side == 'buy' else 1.05), 2)),
             
             # Use mark price for reliable triggering
             "bracket_stop_trigger_method": "mark_price",

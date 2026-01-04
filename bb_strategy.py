@@ -597,17 +597,25 @@ class OptionsStrategy:
                 linewidths=1.0
             )
             
+            # Extract the title text for better readability
+            title_text = f"{signal.action} {symbol}\nEntry: {signal.entry_price:.2f} | TP: {signal.take_profit:.2f} | SL: {signal.stop_loss:.2f} | ADX: {self.analyzer.calculate_adx(candles):.2f}"
+
             fig, axlist = mpf.plot(
                 extended_df,
                 type='candle',
                 style='charles',
                 addplot=apds,
                 alines=alines_config,
-                title=f"{signal.action} {symbol}\nEntry: {signal.entry_price:.2f} | TP: {signal.take_profit:.2f} | SL: {signal.stop_loss:.2f} | ADX: {self.analyzer.calculate_adx(candles):.2f}",
+                # title=...  <-- Removed from here to avoid clipping
                 returnfig=True,
                 volume=False  # Mark price candles often don't have volume
             )
-            
+
+            # Apply the title to the figure explicitly.
+            # y=0.90 moves the title down (default is usually ~0.98).
+            # Adjust this value (e.g., 0.88 or 0.92) to fine-tune the "2 rows" distance.
+            fig.suptitle(title_text, y=0.90)
+
             # Adjust margins: 
             # Left: Reduced to half (approx 0.06 vs default 0.125)
             # Top: Added margin (0.85 vs default 0.9)

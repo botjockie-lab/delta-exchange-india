@@ -457,8 +457,8 @@ class OptionsStrategy:
         atm_strike = round(btc_price / 200) * 200
         
         target_strikes = {
-            'calls': [atm_strike, atm_strike + 200],
-            'puts': [atm_strike, atm_strike - 200]
+            'calls': [atm_strike],
+            'puts': [atm_strike]
         }
         
         # Filter based on option type preference

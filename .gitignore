@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+delta/
+venv/
+.venv/
+
+# Environment Variables
+.env
+
+# Logs
+*.log
+options_strategy.log
+
+# Generated Output
+charts/

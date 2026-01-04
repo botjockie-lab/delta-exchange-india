@@ -32,6 +32,7 @@ import pandas as pd
 import matplotlib
 # Use Agg backend for non-interactive plotting (saves to file)
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import mplfinance as mpf
 
 # Load environment variables
@@ -517,37 +518,69 @@ class OptionsStrategy:
             df['Lower'] = df['MA'] - (std_dev * df['STD'])
             
             # Slice last 30 candles for the snapshot
-            plot_df = df.tail(30)
+            plot_df = df.tail(30).copy()
+            
+            # Create 5 future candles for whitespace
+            last_time = plot_df.index[-1]
+            # Assuming 1m candles based on analyze_option_strike call
+            future_dates = [last_time + timedelta(minutes=i) for i in range(1, 6)]
+            
+            # Create empty dataframe for future dates with same columns
+            future_df = pd.DataFrame(index=future_dates, columns=plot_df.columns)
+            
+            # Combine
+            extended_df = pd.concat([plot_df, future_df])
+            
+            # Determine start and end points for lines
+            # Start: 1 candle before signal (signal is at original plot_df index -1)
+            start_time = plot_df.index[-2] if len(plot_df) >= 2 else plot_df.index[0]
+            end_time = future_dates[-1]
+            
+            # Define line segments
+            seq_entry = [(start_time, signal.entry_price), (end_time, signal.entry_price)]
+            seq_tp = [(start_time, signal.take_profit), (end_time, signal.take_profit)]
+            seq_sl = [(start_time, signal.stop_loss), (end_time, signal.stop_loss)]
             
             # Add plots for BB
             apds = [
-                mpf.make_addplot(plot_df['Upper'], color='green', width=0.8),
-                mpf.make_addplot(plot_df['Lower'], color='red', width=0.8),
-                mpf.make_addplot(plot_df['MA'], color='blue', width=0.5, linestyle='--')
+                mpf.make_addplot(extended_df['Upper'], color='green', width=0.8),
+                mpf.make_addplot(extended_df['Lower'], color='red', width=0.8),
+                mpf.make_addplot(extended_df['MA'], color='blue', width=0.5, linestyle='--')
             ]
             
             # Save plot
             timestamp = int(time.time())
             filename = f"charts/{signal.action}_{symbol}_{timestamp}.png"
             
-            # Prepare horizontal lines for Entry, TP, SL
-            hlines_dict = dict(
-                hlines=[signal.entry_price, signal.take_profit, signal.stop_loss],
+            # Config for arbitrary lines
+            alines_config = dict(
+                alines=[seq_entry, seq_tp, seq_sl],
                 colors=['blue', 'green', 'red'],
-                linestyle='-.',
+                linestyle='-',
                 linewidths=1.0
             )
             
-            mpf.plot(
-                plot_df,
+            fig, axlist = mpf.plot(
+                extended_df,
                 type='candle',
                 style='charles',
                 addplot=apds,
-                hlines=hlines_dict,
+                alines=alines_config,
                 title=f"{signal.action} {symbol}\nEntry: {signal.entry_price:.2f} | TP: {signal.take_profit:.2f} | SL: {signal.stop_loss:.2f} | ADX: {self.analyzer.calculate_adx(candles):.2f}",
-                savefig=filename,
+                returnfig=True,
                 volume=False  # Mark price candles often don't have volume
             )
+            
+            # Add labels above lines
+            ax = axlist[0]
+            x_pos = len(plot_df) - 2 if len(plot_df) >= 2 else 0
+            
+            ax.text(x_pos, signal.entry_price, ' ENTRY', color='blue', fontsize=8, fontweight='bold', verticalalignment='bottom')
+            ax.text(x_pos, signal.take_profit, ' TP', color='green', fontsize=8, fontweight='bold', verticalalignment='bottom')
+            ax.text(x_pos, signal.stop_loss, ' SL', color='red', fontsize=8, fontweight='bold', verticalalignment='bottom')
+            
+            fig.savefig(filename)
+            plt.close(fig)
             logger.info(f"📸 Chart snapshot saved to {filename}")
             
         except Exception as e:

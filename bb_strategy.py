@@ -456,59 +456,83 @@ class OptionsStrategy:
         return next_friday.strftime("%d-%m-%Y")
     
     def get_target_strikes(self, btc_price: float, option_chain: List[Dict]) -> List[Dict]:
-        """Select 5 strikes to monitor: ATM ± 2 strikes"""
-        # Round to nearest 1000 for ATM
-        atm_strike = round(btc_price / 200) * 200
+        """Select strikes to monitor, ensuring price > MIN_OPTION_PRICE"""
         
-        target_strikes = {
-            'calls': [atm_strike],
-            'puts': [atm_strike]
-        }
+        # Parse and separate options
+        calls = []
+        puts = []
         
-        # Filter based on option type preference
-        if self.option_type == 'CALL':
-            target_strikes['puts'] = []
-        elif self.option_type == 'PUT':
-            target_strikes['calls'] = []
+        for opt in option_chain:
+            try:
+                strike = float(opt['strike_price'])
+                mark_price = float(opt.get('mark_price') or 0)
+                item = {
+                    'symbol': opt['symbol'],
+                    'type': 'call' if opt['contract_type'] == 'call_options' else 'put',
+                    'strike': strike,
+                    'product_id': opt['product_id'],
+                    'mark_price': mark_price
+                }
+                if item['type'] == 'call':
+                    calls.append(item)
+                else:
+                    puts.append(item)
+            except (ValueError, KeyError):
+                continue
         
         monitored_options = []
         
-        for option in option_chain:
-            try:
-                strike = float(option['strike_price'])
-                mark_price = float(option.get('mark_price') or 0)
+        # Helper to find best strike
+        def find_best_option(options, is_call):
+            if not options:
+                return None
+            
+            # Sort by strike
+            options.sort(key=lambda x: x['strike'])
+            
+            # Find ATM option (closest strike to btc_price)
+            atm_option = min(options, key=lambda x: abs(x['strike'] - btc_price))
+            
+            # If ATM meets price criteria, return it
+            if atm_option['mark_price'] >= self.min_option_price:
+                return atm_option
                 
-                if option['contract_type'] == 'call_options' and strike in target_strikes['calls']:
-                    if mark_price < self.min_option_price:
-                        logger.warning(f"⚠️ Skipping {option['symbol']} (Strike: {strike}): Price {mark_price} < Min {self.min_option_price}")
-                        continue
-                        
-                    monitored_options.append({
-                        'symbol': option['symbol'],
-                        'type': 'call',
-                        'strike': strike,
-                        'product_id': option['product_id'],
-                        'mark_price': mark_price
-                    })
-                    logger.info(f"Monitoring Call: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {mark_price}")
-                    
-                
-                elif option['contract_type'] == 'put_options' and strike in target_strikes['puts']:
-                    if mark_price < self.min_option_price:
-                        logger.warning(f"⚠️ Skipping {option['symbol']} (Strike: {strike}): Price {mark_price} < Min {self.min_option_price}")
-                        continue
-                        
-                    monitored_options.append({
-                        'symbol': option['symbol'],
-                        'type': 'put',
-                        'strike': strike,
-                        'product_id': option['product_id'],
-                        'mark_price': mark_price
-                    })
-                    logger.info(f"Monitoring Put: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {mark_price}")
-            except (ValueError, KeyError) as e:
-                logger.warning(f"Error processing option {option.get('symbol', 'unknown')}: {e}")
-                continue
+            # If not, search for ITM options (Call: Lower Strike, Put: Higher Strike)
+            if is_call:
+                # Look for strikes < ATM strike with price >= min
+                # We want the highest strike possible (closest to ATM) that meets criteria
+                candidates = [o for o in options if o['strike'] < atm_option['strike'] and o['mark_price'] >= self.min_option_price]
+                if candidates:
+                    return max(candidates, key=lambda x: x['strike'])
+            else:
+                # Look for strikes > ATM strike with price >= min
+                # We want the lowest strike possible (closest to ATM) that meets criteria
+                candidates = [o for o in options if o['strike'] > atm_option['strike'] and o['mark_price'] >= self.min_option_price]
+                if candidates:
+                    return min(candidates, key=lambda x: x['strike'])
+            
+            # If no suitable ITM option found, return ATM (will be filtered/warned later)
+            return atm_option
+
+        # Select Call
+        if self.option_type in ['CALL', 'BOTH']:
+            best_call = find_best_option(calls, is_call=True)
+            if best_call:
+                if best_call['mark_price'] < self.min_option_price:
+                     logger.warning(f"⚠️ No Call found > ${self.min_option_price}. Closest is {best_call['symbol']} (${best_call['mark_price']})")
+                else:
+                    monitored_options.append(best_call)
+                    logger.info(f"Monitoring Call: {best_call['symbol']} (Strike: {best_call['strike']}), Price: {best_call['mark_price']}")
+
+        # Select Put
+        if self.option_type in ['PUT', 'BOTH']:
+            best_put = find_best_option(puts, is_call=False)
+            if best_put:
+                if best_put['mark_price'] < self.min_option_price:
+                     logger.warning(f"⚠️ No Put found > ${self.min_option_price}. Closest is {best_put['symbol']} (${best_put['mark_price']})")
+                else:
+                    monitored_options.append(best_put)
+                    logger.info(f"Monitoring Put: {best_put['symbol']} (Strike: {best_put['strike']}), Price: {best_put['mark_price']}")
         
         return monitored_options
     

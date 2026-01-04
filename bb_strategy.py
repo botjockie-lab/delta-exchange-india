@@ -212,9 +212,12 @@ class DeltaExchangeAPI:
         data = {'id': order_id, 'product_id': product_id}
         return self.make_request('DELETE', '/orders', data=data)
     
-    def get_positions(self) -> Dict:
+    def get_positions(self, underlying_asset_symbol: str = None) -> Dict:
         """Get current open positions"""
-        return self.make_request('GET', '/positions')
+        params = {}
+        if underlying_asset_symbol:
+            params['underlying_asset_symbol'] = underlying_asset_symbol
+        return self.make_request('GET', '/positions', params=params)
 
 class BollingerBandsAnalyzer:
     """Bollinger Bands calculation and signal detection"""
@@ -817,7 +820,7 @@ class OptionsStrategy:
         open_orders = {order['id']: order for order in orders_response.get('result', [])}
         
         # Get active positions from exchange to track filled orders
-        positions_response = self.api.get_positions()
+        positions_response = self.api.get_positions(underlying_asset_symbol='BTC')
         if not positions_response.get('success'):
             logger.error("Failed to fetch positions")
             return

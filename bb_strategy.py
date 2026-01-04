@@ -210,6 +210,10 @@ class DeltaExchangeAPI:
         """Cancel order"""
         data = {'id': order_id, 'product_id': product_id}
         return self.make_request('DELETE', '/orders', data=data)
+    
+    def get_positions(self) -> Dict:
+        """Get current open positions"""
+        return self.make_request('GET', '/positions')
 
 class BollingerBandsAnalyzer:
     """Bollinger Bands calculation and signal detection"""
@@ -773,30 +777,46 @@ class OptionsStrategy:
         
         # Get all open orders
         orders_response = self.api.get_orders(state='open')
-        
         if not orders_response.get('success'):
             logger.error("Failed to fetch open orders")
             return
         
         open_orders = {order['id']: order for order in orders_response.get('result', [])}
         
+        # Get active positions from exchange to track filled orders
+        positions_response = self.api.get_positions()
+        if not positions_response.get('success'):
+            logger.error("Failed to fetch positions")
+            return
+            
+        active_exchange_positions = set()
+        for pos in positions_response.get('result', []):
+            if float(pos.get('size', 0)) > 0:
+                active_exchange_positions.add(pos.get('product_symbol'))
+        
         # Check each position
         positions_to_remove = []
         
         for order_id, position in self.positions.items():
-            if order_id not in open_orders:
-                # Position is closed (filled, cancelled, or stopped out)
-                logger.info(f"Position {position.symbol} (ID: {order_id}) is closed")
-                positions_to_remove.append(order_id)
-            else:
-                # Position is still open, log status
+            # 1. Check if entry order is still pending
+            if order_id in open_orders:
                 order = open_orders[order_id]
-                unfilled_size = order.get('unfilled_size', 0)
+                unfilled_size = float(order.get('unfilled_size', 0))
                 
                 if unfilled_size == 0:
                     logger.info(f"Position {position.symbol} fully filled")
                 else:
                     logger.info(f"Position {position.symbol} partially filled: {position.size - unfilled_size}/{position.size}")
+                continue
+            
+            # 2. Check if position is active on exchange (filled entry)
+            if position.symbol in active_exchange_positions:
+                # Position is active (filled)
+                continue
+                
+            # 3. Neither pending nor active -> Closed
+            logger.info(f"Position {position.symbol} (ID: {order_id}) is closed")
+            positions_to_remove.append(order_id)
         
         # Remove closed positions
         for order_id in positions_to_remove:

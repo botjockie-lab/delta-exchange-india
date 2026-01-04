@@ -251,6 +251,20 @@ class BollingerBandsAnalyzer:
             'lower_band': lower_band,
             'std': std
         }
+
+    @staticmethod
+    def calculate_ema(candles: List[Dict], period: int = 200) -> Optional[float]:
+        """Calculate Exponential Moving Average (EMA)"""
+        if len(candles) < period:
+            return None
+        
+        df = pd.DataFrame(candles)
+        df['close'] = pd.to_numeric(df['close'])
+        
+        # Calculate EMA
+        ema = df['close'].ewm(span=period, adjust=False).mean().iloc[-1]
+        
+        return ema
     
     @staticmethod
     def is_bullish_reversal_candle(candle: Dict, lower_band: float) -> bool:
@@ -433,6 +447,8 @@ class OptionsStrategy:
         self.adx_period = int(os.getenv("ADX_PERIOD", "14"))
         self.bb_period = int(os.getenv("BB_PERIOD", "20"))
         self.bb_std_dev = float(os.getenv("BB_STD_DEV", "2.0"))
+        self.ema_period = int(os.getenv("EMA_PERIOD", "200"))
+        self.use_ema_filter = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
         self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
         
         if self.option_type not in ['CALL', 'PUT', 'BOTH']:
@@ -646,7 +662,7 @@ class OptionsStrategy:
         mark_price = option_data['mark_price']
         
         # Get historical candles
-        candles_response = self.api.get_candles(symbol, resolution='1m', lookback_hours=3)
+        candles_response = self.api.get_candles(symbol, resolution='1m', lookback_hours=5)
         
         if not candles_response.get('success') or not candles_response.get('result'):
             # logger.warning(f"No candle data for {symbol}")
@@ -671,6 +687,13 @@ class OptionsStrategy:
         # Calculate ADX
         adx = self.analyzer.calculate_adx(candles, period=self.adx_period)
         
+        # Calculate 200 EMA if filter is enabled
+        ema = None
+        if self.use_ema_filter:
+            ema = self.analyzer.calculate_ema(candles, period=self.ema_period)
+        
+        ema_str = f"{ema:.2f}" if ema is not None else "N/A"
+
         logger.info(
             f"Candle {symbol}: "
             f"Time={datetime.fromtimestamp(analysis_candle.get('time')).strftime('%H:%M')} "
@@ -678,7 +701,12 @@ class OptionsStrategy:
             f"L={analysis_candle.get('low')} C={analysis_candle.get('close')} "
             f"V={analysis_candle.get('volume')}"
         )
-        logger.info(f"BB {symbol}: Upper={bb['upper_band']:.2f} Middle={bb['middle_band']:.2f} Lower={bb['lower_band']:.2f} | ADX={adx:.2f}")
+
+        log_message = f"BB {symbol}: Upper={bb['upper_band']:.2f} Middle={bb['middle_band']:.2f} Lower={bb['lower_band']:.2f} | ADX={adx:.2f}"
+        if self.use_ema_filter:
+            log_message += f" | EMA={ema_str}"
+        logger.info(log_message)
+
         logger.info(f"Chart: https://www.delta.exchange/app/tradingview/mark-chart/options/BTC/{symbol}")
         
         # Log technical analysis details
@@ -729,12 +757,28 @@ class OptionsStrategy:
         
         # Always look for Bullish Reversal from Lower BB to BUY the option
         if self.analyzer.is_bullish_reversal_candle(analysis_candle, bb['lower_band']):
+            
+            # EMA Filter for Longs
+            if self.use_ema_filter:
+                if ema is None:
+                    logger.info(f"Could not calculate 200 EMA for {symbol}, skipping signal.")
+                    return None
+                
+                close_price = float(analysis_candle.get('close'))
+                if close_price < ema:
+                    logger.info(f"Long signal for {symbol} ignored: Close price ({close_price:.2f}) is below 200 EMA ({ema:.2f})")
+                    return None
+            
             # Calculate Stop-Limit Entry Price (High + 1% buffer)
             candle_high = float(analysis_candle.get('high') or current_price)
             entry_price = candle_high * 1.01
             
             action = 'BUY_CALL' if option_type == 'call' else 'BUY_PUT'
             
+            reason = f'Bullish reversal from lower BB at {bb["lower_band"]:.2f}'
+            if self.use_ema_filter:
+                reason += ' and above 200 EMA'
+
             signal = TradingSignal(
                 action=action,
                 symbol=symbol,
@@ -742,7 +786,7 @@ class OptionsStrategy:
                 entry_price=entry_price,
                 take_profit=entry_price * (1 + self.take_profit_percent / 100),
                 stop_loss=entry_price * (1 - self.stop_loss_percent / 100),
-                reason=f'Bullish reversal from lower BB at {bb["lower_band"]:.2f}',
+                reason=reason,
                 bb_data=bb,
                 candle_data=analysis_candle,
                 strike_price=strike,
@@ -985,6 +1029,8 @@ class OptionsStrategy:
         logger.info(f"Max Positions: {self.max_positions}")
         logger.info(f"Option Type: {self.option_type}")
         logger.info(f"ADX Threshold: {self.adx_threshold}")
+        logger.info(f"EMA Period: {self.ema_period}")
+        logger.info(f"EMA Filter Enabled: {self.use_ema_filter}")
         logger.info(f"Take Profit: {self.take_profit_percent}%")
         logger.info(f"Stop Loss: {self.stop_loss_percent}%")
         

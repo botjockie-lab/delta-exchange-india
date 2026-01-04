@@ -568,7 +568,7 @@ class OptionsStrategy:
         candles.reverse()
         logger.info(f"Received {len(candles)} candles for {symbol}")
         
-        if len(candles) < [self.bb_period, self.adx_period].max():
+        if len(candles) < max(self.bb_period, self.adx_period):
             # logger.warning(f"Insufficient candle data for {symbol}: {len(candles)} candles")
             return None
         

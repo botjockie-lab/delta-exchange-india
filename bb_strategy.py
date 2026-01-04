@@ -433,6 +433,7 @@ class OptionsStrategy:
         self.adx_period = int(os.getenv("ADX_PERIOD", "14"))
         self.bb_period = int(os.getenv("BB_PERIOD", "20"))
         self.bb_std_dev = float(os.getenv("BB_STD_DEV", "2.0"))
+        self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
         
         if self.option_type not in ['CALL', 'PUT', 'BOTH']:
             logger.warning(f"Invalid OPTION_TYPE '{self.option_type}', defaulting to BOTH")
@@ -475,27 +476,36 @@ class OptionsStrategy:
         for option in option_chain:
             try:
                 strike = float(option['strike_price'])
+                mark_price = float(option.get('mark_price') or 0)
                 
                 if option['contract_type'] == 'call_options' and strike in target_strikes['calls']:
+                    if mark_price < self.min_option_price:
+                        logger.warning(f"⚠️ Skipping {option['symbol']} (Strike: {strike}): Price {mark_price} < Min {self.min_option_price}")
+                        continue
+                        
                     monitored_options.append({
                         'symbol': option['symbol'],
                         'type': 'call',
                         'strike': strike,
                         'product_id': option['product_id'],
-                        'mark_price': float(option.get('mark_price') or 0)
+                        'mark_price': mark_price
                     })
-                    logger.info(f"Monitoring Call: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {float(option.get('mark_price') or 0)}")
+                    logger.info(f"Monitoring Call: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {mark_price}")
                     
                 
                 elif option['contract_type'] == 'put_options' and strike in target_strikes['puts']:
+                    if mark_price < self.min_option_price:
+                        logger.warning(f"⚠️ Skipping {option['symbol']} (Strike: {strike}): Price {mark_price} < Min {self.min_option_price}")
+                        continue
+                        
                     monitored_options.append({
                         'symbol': option['symbol'],
                         'type': 'put',
                         'strike': strike,
                         'product_id': option['product_id'],
-                        'mark_price': float(option.get('mark_price') or 0)
+                        'mark_price': mark_price
                     })
-                    logger.info(f"Monitoring Put: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {float(option.get('mark_price') or 0)}")
+                    logger.info(f"Monitoring Put: {option['symbol']} (Strike: {strike}, Product ID: {option['product_id']}), Mark Price: {mark_price}")
             except (ValueError, KeyError) as e:
                 logger.warning(f"Error processing option {option.get('symbol', 'unknown')}: {e}")
                 continue
@@ -674,7 +684,7 @@ class OptionsStrategy:
         entry_price = candle_high * 1.01
         
         # Skip if price is too low (avoid illiquid options)
-        if current_price < 50:
+        if current_price < self.min_option_price:
             return None
         
         signal = None

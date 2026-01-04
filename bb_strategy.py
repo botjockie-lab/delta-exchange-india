@@ -608,6 +608,12 @@ class OptionsStrategy:
                 volume=False  # Mark price candles often don't have volume
             )
             
+            # Adjust margins: 
+            # Left: Reduced to half (approx 0.06 vs default 0.125)
+            # Top: Added margin (0.85 vs default 0.9)
+            # Right: Added margin (0.80 vs default 0.9)
+            fig.subplots_adjust(left=0.06, top=0.85, right=0.80)
+
             # Add labels above lines
             ax = axlist[0]
             x_pos = len(plot_df) - 2 if len(plot_df) >= 2 else 0

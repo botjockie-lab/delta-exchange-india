@@ -451,6 +451,9 @@ class OptionsStrategy:
         self.ema_period = int(os.getenv("EMA_PERIOD", "200"))
         self.use_ema_filter = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
         self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
+        
+        # Risk:Reward parameter
+        self.min_rr = float(os.getenv("MIN_RR", "1.5"))
 
         # Determine required candles
         max_period = self.bb_period
@@ -761,10 +764,6 @@ class OptionsStrategy:
         # Current price for validation
         current_price = float(mark_price or analysis_candle.get('close') or 0)
         
-        # Calculate Stop-Limit Entry Price (High + 1% buffer)
-        candle_high = float(analysis_candle.get('high') or current_price)
-        entry_price = candle_high * 1.01
-        
         # Skip if price is too low (avoid illiquid options)
         if current_price < self.min_option_price:
             return None
@@ -789,6 +788,25 @@ class OptionsStrategy:
             candle_high = float(analysis_candle.get('high') or current_price)
             entry_price = candle_high * 1.01
             
+            # Calculate Risk & Reward metrics
+            stop_loss = entry_price * (1 - self.stop_loss_percent / 100)
+            take_profit = entry_price * (1 + self.take_profit_percent / 100)
+            target_price = bb['upper_band']
+            
+            risk = entry_price - stop_loss
+            reward = target_price - entry_price
+            
+            # Calculate Risk:Reward ratio to Upper Bollinger Band
+            rr_ratio = (reward / risk) if risk > 0 else 0.0
+            
+            if rr_ratio < self.min_rr:
+                logger.info(
+                    f"⚠️ Trade skipped for {symbol}: Min RR not met. "
+                    f"Required: {self.min_rr} | Actual: {rr_ratio:.2f} "
+                    f"(Risk: {risk:.2f}, Reward: {reward:.2f}, Target BB: {target_price:.2f})"
+                )
+                return None
+            
             action = 'BUY_CALL' if option_type == 'call' else 'BUY_PUT'
             
             reason_parts = [f'Bullish reversal from lower BB at {bb["lower_band"]:.2f}']
@@ -796,6 +814,7 @@ class OptionsStrategy:
                 reason_parts.append('with ADX confirmation')
             if self.use_ema_filter:
                 reason_parts.append('and above 200 EMA')
+            reason_parts.append(f'(RR: {rr_ratio:.2f} to Upper BB)')
             
             reason = ' '.join(reason_parts)
 
@@ -804,8 +823,8 @@ class OptionsStrategy:
                 symbol=symbol,
                 product_id=product_id,
                 entry_price=entry_price,
-                take_profit=entry_price * (1 + self.take_profit_percent / 100),
-                stop_loss=entry_price * (1 - self.stop_loss_percent / 100),
+                take_profit=take_profit,
+                stop_loss=stop_loss,
                 reason=reason,
                 bb_data=bb,
                 candle_data=analysis_candle,
@@ -1054,6 +1073,7 @@ class OptionsStrategy:
         logger.info(f"EMA Filter Enabled: {self.use_ema_filter}")
         logger.info(f"Take Profit: {self.take_profit_percent}%")
         logger.info(f"Stop Loss: {self.stop_loss_percent}%")
+        logger.info(f"Min Risk:Reward (to upper BB): {self.min_rr}")
         
         self.running = True
         

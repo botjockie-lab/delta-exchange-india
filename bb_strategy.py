@@ -1117,6 +1117,16 @@ def main():
             mock_mode=MOCK_MODE
         )
         
+        # Validate API credentials before starting
+        logger.info("Validating API credentials...")
+        validation_response = strategy.api.get_positions(underlying_asset_symbol='BTC')
+        if not validation_response.get('success'):
+            logger.error("❌ API credential validation failed. Please check your API key and secret.")
+            error_details = validation_response.get('error', 'No additional details provided.')
+            logger.error(f"Error details: {error_details}")
+            sys.exit(1)
+        logger.info("✅ API credentials are valid.")
+
         # Start the automated strategy
         strategy.start(cycle_interval=CYCLE_INTERVAL)
         

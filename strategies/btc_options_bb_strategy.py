@@ -451,6 +451,7 @@ class OptionsStrategy:
         self.ema_period = int(os.getenv("EMA_PERIOD", "200"))
         self.use_ema_filter = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
         self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
+        self.resolution = os.getenv("RESOLUTION", "15m")
         
         # Risk:Reward parameter
         self.min_rr = float(os.getenv("MIN_RR", "1.5"))
@@ -587,7 +588,6 @@ class OptionsStrategy:
             
             # Create 5 future candles for whitespace
             last_time = plot_df.index[-1]
-            # Assuming 1m candles based on analyze_option_strike call
             future_dates = [last_time + timedelta(minutes=i) for i in range(1, 6)]
             
             # Create empty dataframe for future dates with same columns
@@ -677,7 +677,7 @@ class OptionsStrategy:
         lookback_hours = math.ceil(self.required_candles / 60) + 1 # Add 1 hour buffer
 
         # Get historical candles
-        candles_response = self.api.get_candles(symbol, resolution='1m', lookback_hours=lookback_hours)
+        candles_response = self.api.get_candles(symbol, resolution=self.resolution, lookback_hours=lookback_hours)
         
         if not candles_response.get('success') or not candles_response.get('result'):
             # logger.warning(f"No candle data for {symbol}")

@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 # Allow importing from same directory
 sys.path.insert(0, os.path.dirname(__file__))
-from btc_options_bb_strategy import DeltaExchangeAPI, OptionsStrategy
+from strategy import DeltaExchangeAPI, OptionsStrategy
 
 load_dotenv()
 
@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+_BASE_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'btc_options_bb')
 
 RESOLUTION = os.getenv("RESOLUTION", "15m")
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
@@ -70,9 +70,14 @@ def fetch_all_candles(api: DeltaExchangeAPI, symbol: str, resolution: str, lookb
     while chunk_end > start:
         chunk_start = max(chunk_end - chunk_seconds, start)
 
+        # Options use mark price; spot/perp symbols are passed as-is
+        # (user may also pass MARK:SYMBOL explicitly to override)
+        is_option = symbol.startswith(('C-', 'P-'))
+        api_symbol = f'MARK:{symbol}' if is_option else symbol
+
         params = {
             'resolution': resolution,
-            'symbol': f'MARK:{symbol}',
+            'symbol': api_symbol,
             'start': chunk_start,
             'end': chunk_end,
         }
@@ -145,7 +150,6 @@ def main():
         sys.exit(1)
 
     api = DeltaExchangeAPI(api_key, api_secret)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     symbols = sys.argv[1:] if len(sys.argv) > 1 else get_current_strikes(api)
 
@@ -163,7 +167,16 @@ def main():
             logger.warning(f"No data returned for {symbol}")
             continue
 
-        out_path = os.path.join(OUTPUT_DIR, f"{symbol}_{RESOLUTION}.csv")
+        # Route output: options → options/{expiry}/  |  spot/perp → spot/
+        parts = symbol.split('-')
+        if len(parts) == 4 and parts[0] in ('C', 'P') and parts[1] == 'BTC':
+            expiry = parts[3]
+            out_dir = os.path.join(_BASE_DATA_DIR, 'options', expiry)
+        else:
+            out_dir = os.path.join(_BASE_DATA_DIR, 'spot')
+
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, f"{symbol}_{RESOLUTION}.csv")
         df.to_csv(out_path, index=False)
         logger.info(f"Saved {len(df)} candles → {out_path}")
         logger.info(f"  Range: {df['datetime'].iloc[0]} → {df['datetime'].iloc[-1]}")

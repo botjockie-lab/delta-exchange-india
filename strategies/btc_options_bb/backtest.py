@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
-from btc_options_bb_strategy import BollingerBandsAnalyzer
+from strategy import BollingerBandsAnalyzer
 
 load_dotenv()
 
@@ -466,7 +466,7 @@ def main():
         all_trades.extend(trades)
 
     if all_trades:
-        chart_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'charts')
+        chart_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'charts', 'btc_options_bb')
         os.makedirs(chart_dir, exist_ok=True)
         plot_equity_curve(all_trades, os.path.join(chart_dir, 'backtest_equity.png'))
 

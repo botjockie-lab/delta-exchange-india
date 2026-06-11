@@ -17,6 +17,7 @@ Usage:
 import os
 import sys
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
@@ -34,33 +35,61 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ── Strategy parameters (mirrors OptionsStrategy.__init__) ───────────────────
-TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", "10"))
-STOP_LOSS_PERCENT   = float(os.getenv("STOP_LOSS_PERCENT",   "5"))
-BB_PERIOD           = int(os.getenv("BB_PERIOD",             "20"))
-BB_STD_DEV          = float(os.getenv("BB_STD_DEV",          "2.0"))
-ADX_PERIOD          = int(os.getenv("ADX_PERIOD",            "14"))
-ADX_THRESHOLD       = float(os.getenv("ADX_THRESHOLD",       "25"))
-USE_ADX_FILTER      = os.getenv("USE_ADX_FILTER", "True").lower() == "true"
-EMA_PERIOD          = int(os.getenv("EMA_PERIOD",            "200"))
-USE_EMA_FILTER      = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
-MIN_OPTION_PRICE    = float(os.getenv("MIN_OPTION_PRICE",    "50"))
-MIN_RR              = float(os.getenv("MIN_RR",              "1.5"))
-
-# ── Backtest-only parameters ─────────────────────────────────────────────────
-# Cancel pending entry order if not filled within this many bars
-MAX_PENDING_BARS = int(os.getenv("MAX_PENDING_BARS", "5"))
-
-# Minimum bars of history needed before the first signal can fire
-_max_period = BB_PERIOD
-if USE_ADX_FILTER:
-    _max_period = max(_max_period, 2 * ADX_PERIOD + 1)
-if USE_EMA_FILTER:
-    _max_period = max(_max_period, EMA_PERIOD)
-REQUIRED_CANDLES = _max_period + 20
+# ── Module-level defaults (read from .env, used by BacktestParams.from_env()) ─
+_TP_PCT          = float(os.getenv("TAKE_PROFIT_PERCENT", "10"))
+_SL_PCT          = float(os.getenv("STOP_LOSS_PERCENT",   "5"))
+_BB_PERIOD       = int(os.getenv("BB_PERIOD",             "20"))
+_BB_STD_DEV      = float(os.getenv("BB_STD_DEV",          "2.0"))
+_ADX_PERIOD      = int(os.getenv("ADX_PERIOD",            "14"))
+_ADX_THRESHOLD   = float(os.getenv("ADX_THRESHOLD",       "25"))
+_USE_ADX         = os.getenv("USE_ADX_FILTER", "True").lower() == "true"
+_EMA_PERIOD      = int(os.getenv("EMA_PERIOD",            "200"))
+_USE_EMA         = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
+_MIN_PRICE       = float(os.getenv("MIN_OPTION_PRICE",    "50"))
+_MIN_RR          = float(os.getenv("MIN_RR",              "1.5"))
+_MAX_PEND_BARS   = int(os.getenv("MAX_PENDING_BARS",      "5"))
 
 
-# ── Data loading ─────────────────────────────────────────────────────────────
+# ── Parameter container ───────────────────────────────────────────────────────
+
+@dataclass
+class BacktestParams:
+    take_profit_pct: float  = _TP_PCT
+    stop_loss_pct:   float  = _SL_PCT
+    bb_period:       int    = _BB_PERIOD
+    bb_std_dev:      float  = _BB_STD_DEV
+    adx_period:      int    = _ADX_PERIOD
+    adx_threshold:   float  = _ADX_THRESHOLD
+    use_adx_filter:  bool   = _USE_ADX
+    ema_period:      int    = _EMA_PERIOD
+    use_ema_filter:  bool   = _USE_EMA
+    min_option_price: float = _MIN_PRICE
+    min_rr:          float  = _MIN_RR
+    max_pending_bars: int   = _MAX_PEND_BARS
+
+    @property
+    def required_candles(self) -> int:
+        max_p = self.bb_period
+        if self.use_adx_filter:
+            max_p = max(max_p, 2 * self.adx_period + 1)
+        if self.use_ema_filter:
+            max_p = max(max_p, self.ema_period)
+        return max_p + 20
+
+    @classmethod
+    def from_env(cls) -> 'BacktestParams':
+        return cls()
+
+    def label(self) -> str:
+        adx = f"ADX>{self.adx_threshold}" if self.use_adx_filter else "ADX:off"
+        ema = f"EMA{self.ema_period}" if self.use_ema_filter else "EMA:off"
+        return (f"BB({self.bb_period},{self.bb_std_dev}) "
+                f"TP:{self.take_profit_pct}% SL:{self.stop_loss_pct}% "
+                f"MinRR:{self.min_rr} Pend:{self.max_pending_bars} "
+                f"{adx} {ema}")
+
+
+# ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_csv(path: str) -> List[Dict]:
     df = pd.read_csv(path)
@@ -81,106 +110,100 @@ def load_csv(path: str) -> List[Dict]:
     return rows
 
 
-# ── Signal detection (mirrors analyze_option_strike, no API calls) ───────────
+# ── Signal detection ──────────────────────────────────────────────────────────
 
-def check_signal(candles: List[Dict], analyzer: BollingerBandsAnalyzer) -> Optional[Dict]:
+def check_signal(candles: List[Dict], bar_idx: int,
+                 analyzer: BollingerBandsAnalyzer,
+                 p: BacktestParams) -> Optional[Dict]:
     """
-    Run signal checks on `candles` (oldest→newest).
-    `candles[-1]` is the analysis (most recently closed) bar.
-    Returns a signal dict or None.
+    Check for a signal at `bar_idx` (the most recently closed bar).
+    Uses targeted slices rather than candles[:bar_idx+1] to avoid O(n²) copies.
     """
-    if len(candles) < REQUIRED_CANDLES:
+    if bar_idx < p.required_candles:
         return None
 
-    analysis_candle = candles[-1]
-    current_price = float(analysis_candle['close'] or 0)
+    analysis_candle = candles[bar_idx]
+    current_price   = float(analysis_candle['close'] or 0)
 
-    if current_price < MIN_OPTION_PRICE:
+    if current_price < p.min_option_price:
         return None
 
-    bb = analyzer.calculate_bollinger_bands(candles, period=BB_PERIOD, std_dev=BB_STD_DEV)
+    # BB uses only the last bb_period candles
+    bb_candles = candles[bar_idx - p.bb_period + 1 : bar_idx + 1]
+    bb = analyzer.calculate_bollinger_bands(bb_candles, period=p.bb_period, std_dev=p.bb_std_dev)
     if not bb:
         return None
 
-    # ADX filter
-    if USE_ADX_FILTER:
-        adx = analyzer.calculate_adx(candles, period=ADX_PERIOD)
-        if adx is None or adx < ADX_THRESHOLD:
+    # ADX / EMA need more history — use required_candles window
+    hist_start   = max(0, bar_idx - p.required_candles + 1)
+    hist_candles = candles[hist_start : bar_idx + 1]
+
+    adx = None
+    if p.use_adx_filter:
+        adx = analyzer.calculate_adx(hist_candles, period=p.adx_period)
+        if adx is None or adx < p.adx_threshold:
             return None
-    else:
-        adx = None
 
-    # EMA filter
-    if USE_EMA_FILTER:
-        ema = analyzer.calculate_ema(candles, period=EMA_PERIOD)
-    else:
-        ema = None
+    ema = None
+    if p.use_ema_filter:
+        ema = analyzer.calculate_ema(hist_candles, period=p.ema_period)
 
-    # Bullish reversal from lower BB
     if not analyzer.is_bullish_reversal_candle(analysis_candle, bb['lower_band']):
         return None
 
-    # EMA directional filter
-    if USE_EMA_FILTER:
-        if ema is None:
-            return None
-        if float(analysis_candle['close']) < ema:
+    if p.use_ema_filter:
+        if ema is None or float(analysis_candle['close']) < ema:
             return None
 
-    # Entry, TP, SL
     candle_high = float(analysis_candle['high'] or current_price)
     entry_price = candle_high * 1.01
-    stop_loss   = entry_price * (1 - STOP_LOSS_PERCENT / 100)
-    take_profit = entry_price * (1 + TAKE_PROFIT_PERCENT / 100)
+    stop_loss   = entry_price * (1 - p.stop_loss_pct / 100)
+    take_profit = entry_price * (1 + p.take_profit_pct / 100)
 
-    # RR check: reward measured to upper BB (same as live strategy)
-    risk   = entry_price - stop_loss
-    reward = bb['upper_band'] - entry_price
+    risk     = entry_price - stop_loss
+    reward   = bb['upper_band'] - entry_price
     rr_ratio = (reward / risk) if risk > 0 else 0.0
 
-    if rr_ratio < MIN_RR:
+    if rr_ratio < p.min_rr:
         return None
 
     return {
-        'entry_price':    entry_price,
-        'take_profit':    take_profit,
-        'stop_loss':      stop_loss,
-        'upper_band':     bb['upper_band'],
-        'lower_band':     bb['lower_band'],
-        'middle_band':    bb['middle_band'],
-        'adx':            adx,
-        'ema':            ema,
-        'rr_ratio':       rr_ratio,
-        'signal_candle':  analysis_candle,
+        'entry_price':   entry_price,
+        'take_profit':   take_profit,
+        'stop_loss':     stop_loss,
+        'upper_band':    bb['upper_band'],
+        'lower_band':    bb['lower_band'],
+        'middle_band':   bb['middle_band'],
+        'adx':           adx,
+        'ema':           ema,
+        'rr_ratio':      rr_ratio,
+        'signal_candle': analysis_candle,
     }
 
 
-# ── Trade execution simulation ───────────────────────────────────────────────
+# ── Trade execution simulation ────────────────────────────────────────────────
 
 def try_fill(candle: Dict, entry_price: float) -> bool:
-    """True if the stop-limit entry could have been filled on this candle."""
     return float(candle['high']) >= entry_price
 
 
-def check_exit(candle: Dict, take_profit: float, stop_loss: float) -> Optional[Tuple[str, float]]:
+def check_exit(candle: Dict, take_profit: float,
+               stop_loss: float) -> Optional[Tuple[str, float]]:
     """
     Returns ('TP', price) | ('SL', price) | None.
-    Gap-open logic handles overnight jumps.
-    Same-bar TP+SL conflict → SL (conservative).
+    Gap-open edges handled first; same-bar conflict → SL (conservative).
     """
-    o = float(candle['open'])
-    h = float(candle['high'])
-    l = float(candle['low'])
+    o, h, l = float(candle['open']), float(candle['high']), float(candle['low'])
 
-    if o >= take_profit:          # gapped above TP
+    if o >= take_profit:
         return ('TP', take_profit)
-    if o <= stop_loss:            # gapped below SL
+    if o <= stop_loss:
         return ('SL', stop_loss)
 
     hit_tp = h >= take_profit
     hit_sl = l <= stop_loss
 
-    if hit_tp and hit_sl:         # both hit intra-bar → conservative
+    if hit_tp and hit_sl:
         return ('SL', stop_loss)
     if hit_tp:
         return ('TP', take_profit)
@@ -189,58 +212,54 @@ def check_exit(candle: Dict, take_profit: float, stop_loss: float) -> Optional[T
     return None
 
 
-# ── Core backtest loop ───────────────────────────────────────────────────────
+# ── Core backtest loop ────────────────────────────────────────────────────────
 
-def run_backtest(symbol: str, candles: List[Dict]) -> List[Dict]:
+def run_backtest(symbol: str, candles: List[Dict],
+                 p: BacktestParams) -> List[Dict]:
     analyzer = BollingerBandsAnalyzer()
-    trades: List[Dict] = []
+    trades:   List[Dict] = []
 
-    # state machine: 'flat' | 'pending' | 'in_trade'
     state         = 'flat'
-    pending       = None   # signal dict
+    pending       = None
     pending_bars  = 0
-    open_trade    = None   # dict with entry metadata
+    open_trade    = None
     entry_bar_idx = None
 
-    for i in range(REQUIRED_CANDLES, len(candles)):
+    for i in range(p.required_candles, len(candles)):
         candle = candles[i]
 
-        # ── Check open trade for TP/SL ───────────────────────────────────
         if state == 'in_trade':
             result = check_exit(candle, open_trade['take_profit'], open_trade['stop_loss'])
             if result:
                 outcome, exit_price = result
-                bars_held = i - entry_bar_idx
                 pct = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
                 trades.append({**open_trade,
                                 'exit_time':  datetime.fromtimestamp(candle['time']),
                                 'exit_price': round(exit_price, 4),
                                 'pct_return': round(pct, 2),
                                 'outcome':    outcome,
-                                'bars_held':  bars_held})
+                                'bars_held':  i - entry_bar_idx})
                 state, open_trade, entry_bar_idx = 'flat', None, None
 
-        # ── Try to fill pending entry ────────────────────────────────────
         elif state == 'pending':
             pending_bars += 1
             if try_fill(candle, pending['entry_price']):
                 state         = 'in_trade'
                 entry_bar_idx = i
                 open_trade = {
-                    'symbol':       symbol,
-                    'signal_time':  datetime.fromtimestamp(pending['signal_candle']['time']),
-                    'entry_time':   datetime.fromtimestamp(candle['time']),
-                    'entry_price':  round(pending['entry_price'], 4),
-                    'take_profit':  round(pending['take_profit'], 4),
-                    'stop_loss':    round(pending['stop_loss'],   4),
-                    'upper_band':   round(pending['upper_band'],  4),
-                    'lower_band':   round(pending['lower_band'],  4),
-                    'rr_ratio':     round(pending['rr_ratio'],    2),
-                    'adx':          round(pending['adx'], 2) if pending['adx'] else None,
+                    'symbol':      symbol,
+                    'signal_time': datetime.fromtimestamp(pending['signal_candle']['time']),
+                    'entry_time':  datetime.fromtimestamp(candle['time']),
+                    'entry_price': round(pending['entry_price'], 4),
+                    'take_profit': round(pending['take_profit'], 4),
+                    'stop_loss':   round(pending['stop_loss'],   4),
+                    'upper_band':  round(pending['upper_band'],  4),
+                    'lower_band':  round(pending['lower_band'],  4),
+                    'rr_ratio':    round(pending['rr_ratio'],    2),
+                    'adx':         round(pending['adx'], 2) if pending['adx'] else None,
                 }
                 pending = None
 
-                # Immediately check if fill bar also hits TP/SL
                 result = check_exit(candle, open_trade['take_profit'], open_trade['stop_loss'])
                 if result:
                     outcome, exit_price = result
@@ -253,23 +272,20 @@ def run_backtest(symbol: str, candles: List[Dict]) -> List[Dict]:
                                    'bars_held':  0})
                     state, open_trade, entry_bar_idx = 'flat', None, None
 
-            elif pending_bars >= MAX_PENDING_BARS:
+            elif pending_bars >= p.max_pending_bars:
                 state, pending, pending_bars = 'flat', None, 0
 
-        # ── Look for a new signal when flat ─────────────────────────────
         if state == 'flat':
-            # Pass all candles up to and including bar i (bar i just closed)
-            signal = check_signal(candles[:i + 1], analyzer)
+            signal = check_signal(candles, i, analyzer, p)
             if signal:
                 state        = 'pending'
                 pending      = signal
                 pending_bars = 0
 
-    # Mark any position still open at end of data
     if state == 'in_trade' and open_trade:
-        last = candles[-1]
+        last       = candles[-1]
         exit_price = float(last['close'])
-        pct = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
+        pct        = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
         trades.append({**open_trade,
                        'exit_time':  datetime.fromtimestamp(last['time']),
                        'exit_price': round(exit_price, 4),
@@ -280,98 +296,109 @@ def run_backtest(symbol: str, candles: List[Dict]) -> List[Dict]:
     return trades
 
 
-# ── Reporting ─────────────────────────────────────────────────────────────────
+# ── Metrics helper (used by both backtest and optimizer) ──────────────────────
 
-def print_summary(trades: List[Dict], label: str):
-    if not trades:
-        print(f"\n{label}: No trades generated.")
-        return
+def compute_metrics(trades: List[Dict]) -> Dict:
+    closed = [t for t in trades if t['outcome'] in ('TP', 'SL')]
+    if not closed:
+        return {'total_trades': 0, 'win_rate': 0, 'profit_factor': 0,
+                'total_return_pct': 0, 'max_drawdown_pct': 0,
+                'calmar_ratio': 0, 'max_consec_losses': 0, 'avg_bars_held': 0}
 
-    df = pd.DataFrame(trades)
-    closed = df[df['outcome'].isin(['TP', 'SL'])]
-    wins   = closed[closed['outcome'] == 'TP']
-    losses = closed[closed['outcome'] == 'SL']
+    wins   = [t for t in closed if t['outcome'] == 'TP']
+    losses = [t for t in closed if t['outcome'] == 'SL']
 
-    total      = len(closed)
-    win_rate   = len(wins) / total * 100 if total else 0
-    avg_win    = wins['pct_return'].mean()   if len(wins)   else 0.0
-    avg_loss   = losses['pct_return'].mean() if len(losses) else 0.0
-    gross_profit = wins['pct_return'].sum()
-    gross_loss   = abs(losses['pct_return'].sum())
+    gross_profit = sum(t['pct_return'] for t in wins)
+    gross_loss   = abs(sum(t['pct_return'] for t in losses))
     pf           = gross_profit / gross_loss if gross_loss > 0 else float('inf')
 
-    # Compound equity (base 100), closed trades only
-    equity = 100.0
-    eq_curve = [equity]
-    for r in closed['pct_return']:
-        equity *= (1 + r / 100)
+    equity, eq_curve = 100.0, [100.0]
+    for t in closed:
+        equity *= (1 + t['pct_return'] / 100)
         eq_curve.append(equity)
     total_return = equity - 100
 
-    # Max drawdown
-    peak, max_dd = eq_curve[0], 0.0
+    peak, max_dd = 100.0, 0.0
     for v in eq_curve:
-        peak  = max(peak, v)
+        peak   = max(peak, v)
         max_dd = max(max_dd, (peak - v) / peak * 100)
 
-    # Max consecutive losses
-    max_consec_losses, cur = 0, 0
-    for o in closed['outcome']:
-        if o == 'SL':
+    calmar = total_return / max_dd if max_dd > 0 else 0.0
+
+    max_consec = cur = 0
+    for t in closed:
+        if t['outcome'] == 'SL':
             cur += 1
-            max_consec_losses = max(max_consec_losses, cur)
+            max_consec = max(max_consec, cur)
         else:
             cur = 0
 
-    # Average bars held
-    avg_bars = closed['bars_held'].mean() if 'bars_held' in closed.columns else 0
+    avg_bars = sum(t.get('bars_held', 0) for t in closed) / len(closed)
 
-    period_start = df['signal_time'].min()
-    period_end   = df['exit_time'].max()
+    return {
+        'total_trades':     len(closed),
+        'win_rate':         round(len(wins) / len(closed) * 100, 1),
+        'profit_factor':    round(pf, 3),
+        'total_return_pct': round(total_return, 2),
+        'max_drawdown_pct': round(max_dd, 2),
+        'calmar_ratio':     round(calmar, 3),
+        'max_consec_losses': max_consec,
+        'avg_bars_held':    round(avg_bars, 1),
+    }
+
+
+# ── Reporting ─────────────────────────────────────────────────────────────────
+
+def print_summary(trades: List[Dict], label: str, p: BacktestParams):
+    m = compute_metrics(trades)
+    closed_df = pd.DataFrame([t for t in trades if t['outcome'] in ('TP', 'SL')])
+    all_df    = pd.DataFrame(trades)
+
+    if m['total_trades'] == 0:
+        print(f"\n{label}: No trades generated.")
+        return
+
+    wins   = len([t for t in trades if t['outcome'] == 'TP'])
+    losses = len([t for t in trades if t['outcome'] == 'SL'])
+    open_end = len(trades) - m['total_trades']
+
+    period_start = all_df['signal_time'].min()
+    period_end   = all_df['exit_time'].max()
 
     print(f"\n{'═'*58}")
     print(f"  Backtest Results — {label}")
     print(f"{'═'*58}")
     print(f"  Period:               {period_start} → {period_end}")
-    print(f"  Total Trades:         {total}  (excl. open at end: {len(df) - len(closed)})")
-    print(f"  Win Rate:             {win_rate:.1f}%  ({len(wins)}W / {len(losses)}L)")
-    print(f"  Avg Win:              +{avg_win:.2f}%")
-    print(f"  Avg Loss:             {avg_loss:.2f}%")
-    print(f"  Profit Factor:        {pf:.2f}")
-    print(f"  Total Return:         {total_return:+.2f}%")
-    print(f"  Max Drawdown:         -{max_dd:.2f}%")
-    print(f"  Max Consec. Losses:   {max_consec_losses}")
-    print(f"  Avg Bars Held:        {avg_bars:.1f}")
+    print(f"  Total Trades:         {m['total_trades']}  (open at end: {open_end})")
+    print(f"  Win Rate:             {m['win_rate']}%  ({wins}W / {losses}L)")
+    print(f"  Avg Win:              +{closed_df[closed_df['outcome']=='TP']['pct_return'].mean():.2f}%" if wins else "  Avg Win:              N/A")
+    print(f"  Avg Loss:             {closed_df[closed_df['outcome']=='SL']['pct_return'].mean():.2f}%" if losses else "  Avg Loss:             N/A")
+    print(f"  Profit Factor:        {m['profit_factor']:.2f}")
+    print(f"  Total Return:         {m['total_return_pct']:+.2f}%")
+    print(f"  Max Drawdown:         -{m['max_drawdown_pct']:.2f}%")
+    print(f"  Calmar Ratio:         {m['calmar_ratio']:.2f}")
+    print(f"  Max Consec. Losses:   {m['max_consec_losses']}")
+    print(f"  Avg Bars Held:        {m['avg_bars_held']}")
     print(f"{'─'*58}")
-    print(f"  BB({BB_PERIOD},{BB_STD_DEV})  TP:{TAKE_PROFIT_PERCENT}%  SL:{STOP_LOSS_PERCENT}%  MinRR:{MIN_RR}  PendBars:{MAX_PENDING_BARS}")
-    if USE_ADX_FILTER:
-        print(f"  ADX filter: >{ADX_THRESHOLD} (period {ADX_PERIOD})")
-    else:
-        print(f"  ADX filter: OFF")
-    if USE_EMA_FILTER:
-        print(f"  EMA filter: >{EMA_PERIOD}-period EMA")
-    else:
-        print(f"  EMA filter: OFF")
+    print(f"  {p.label()}")
     print(f"{'═'*58}\n")
 
-    # Per-trade table
     display_cols = ['symbol', 'signal_time', 'entry_time', 'exit_time',
                     'entry_price', 'exit_price', 'pct_return', 'outcome', 'bars_held', 'rr_ratio']
-    display_cols = [c for c in display_cols if c in df.columns]
-    print(df[display_cols].to_string(index=False))
+    display_cols = [c for c in display_cols if c in all_df.columns]
+    print(all_df[display_cols].to_string(index=False))
     print()
 
 
 def plot_equity_curve(all_trades: List[Dict], output_path: str):
-    closed = [t for t in all_trades if t['outcome'] in ('TP', 'SL')]
+    closed = sorted([t for t in all_trades if t['outcome'] in ('TP', 'SL')],
+                    key=lambda t: t['entry_time'])
     if not closed:
         return
 
-    closed.sort(key=lambda t: t['entry_time'])
-    equity, labels = [100.0], ['start']
+    equity = [100.0]
     for t in closed:
         equity.append(equity[-1] * (1 + t['pct_return'] / 100))
-        labels.append(f"{t['outcome']} #{len(labels)}")
 
     fig, ax = plt.subplots(figsize=(14, 5))
     xs = range(len(equity))
@@ -381,13 +408,10 @@ def plot_equity_curve(all_trades: List[Dict], output_path: str):
                     where=[e >= 100 for e in equity], alpha=0.2, color='green', label='Profit')
     ax.fill_between(xs, equity, 100,
                     where=[e <  100 for e in equity], alpha=0.25, color='red', label='Loss')
-
-    # Mark TP and SL points
     for idx, t in enumerate(closed, start=1):
-        color = 'green' if t['outcome'] == 'TP' else 'red'
-        ax.scatter(idx, equity[idx], color=color, s=25, zorder=4)
+        ax.scatter(idx, equity[idx], color='green' if t['outcome'] == 'TP' else 'red', s=25, zorder=4)
 
-    peak = max(equity)
+    peak     = max(equity)
     peak_idx = equity.index(peak)
     ax.annotate(f"Peak {peak:.1f}", xy=(peak_idx, peak),
                 xytext=(peak_idx + 1, peak + 1), fontsize=8, color='navy')
@@ -410,30 +434,28 @@ def main():
         print(__doc__)
         sys.exit(1)
 
+    p          = BacktestParams.from_env()
     csv_paths  = sys.argv[1:]
     all_trades = []
 
-    logger.info(f"Settings: BB({BB_PERIOD},{BB_STD_DEV}) TP:{TAKE_PROFIT_PERCENT}% SL:{STOP_LOSS_PERCENT}% "
-                f"MinRR:{MIN_RR} ADX:{'ON >'+str(ADX_THRESHOLD) if USE_ADX_FILTER else 'OFF'} "
-                f"EMA:{'ON >'+str(EMA_PERIOD) if USE_EMA_FILTER else 'OFF'} "
-                f"RequiredCandles:{REQUIRED_CANDLES}")
+    logger.info(f"Settings: {p.label()}  RequiredCandles:{p.required_candles}")
 
     for path in csv_paths:
         if not os.path.exists(path):
             logger.error(f"File not found: {path}")
             continue
 
-        symbol = os.path.splitext(os.path.basename(path))[0]
+        symbol  = os.path.splitext(os.path.basename(path))[0]
         logger.info(f"Loading {path} ...")
         candles = load_csv(path)
         logger.info(f"  {len(candles)} candles loaded for {symbol}")
 
-        if len(candles) < REQUIRED_CANDLES + 10:
-            logger.warning(f"  Not enough candles (need >{REQUIRED_CANDLES}), skipping")
+        if len(candles) < p.required_candles + 10:
+            logger.warning(f"  Not enough candles (need >{p.required_candles}), skipping")
             continue
 
-        trades = run_backtest(symbol, candles)
-        print_summary(trades, symbol)
+        trades = run_backtest(symbol, candles, p)
+        print_summary(trades, symbol, p)
 
         if trades:
             out_csv = os.path.join(os.path.dirname(os.path.abspath(path)),
@@ -449,7 +471,7 @@ def main():
         plot_equity_curve(all_trades, os.path.join(chart_dir, 'backtest_equity.png'))
 
         if len(csv_paths) > 1:
-            print_summary(all_trades, "COMBINED")
+            print_summary(all_trades, "COMBINED", p)
 
 
 if __name__ == "__main__":

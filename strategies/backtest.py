@@ -47,7 +47,7 @@ _EMA_PERIOD      = int(os.getenv("EMA_PERIOD",            "200"))
 _USE_EMA         = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
 _MIN_PRICE       = float(os.getenv("MIN_OPTION_PRICE",    "50"))
 _MIN_RR          = float(os.getenv("MIN_RR",              "1.5"))
-_MAX_PEND_BARS   = int(os.getenv("MAX_PENDING_BARS",      "5"))
+_SIGNAL_EXPIRY_BARS = int(os.getenv("SIGNAL_EXPIRY_BARS", "20"))
 
 
 # ── Parameter container ───────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ class BacktestParams:
     use_ema_filter:  bool   = _USE_EMA
     min_option_price: float = _MIN_PRICE
     min_rr:          float  = _MIN_RR
-    max_pending_bars: int   = _MAX_PEND_BARS
+    signal_expiry_bars: int = _SIGNAL_EXPIRY_BARS
 
     @property
     def required_candles(self) -> int:
@@ -85,7 +85,7 @@ class BacktestParams:
         ema = f"EMA{self.ema_period}" if self.use_ema_filter else "EMA:off"
         return (f"BB({self.bb_period},{self.bb_std_dev}) "
                 f"TP:{self.take_profit_pct}% SL:{self.stop_loss_pct}% "
-                f"MinRR:{self.min_rr} Pend:{self.max_pending_bars} "
+                f"MinRR:{self.min_rr} Expiry:{self.signal_expiry_bars}bars "
                 f"{adx} {ema}")
 
 
@@ -272,7 +272,7 @@ def run_backtest(symbol: str, candles: List[Dict],
                                    'bars_held':  0})
                     state, open_trade, entry_bar_idx = 'flat', None, None
 
-            elif pending_bars >= p.max_pending_bars:
+            elif pending_bars >= p.signal_expiry_bars:
                 state, pending, pending_bars = 'flat', None, 0
 
         if state == 'flat':

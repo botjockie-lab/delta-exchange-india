@@ -59,15 +59,14 @@ logger = logging.getLogger(__name__)
 
 PARAM_GRID: Dict[str, list] = {
     'bb_period':        [10, 15, 20, 30],
-    'bb_std_dev':       [0.5, 1.0, 1.5, 2.0],
+    'bb_std_dev':       [0.5, 1.0, 1.5, 2.0, 2,5, 3],
     'take_profit_pct':  [10, 20, 30],
-    'stop_loss_pct':    [5, 10],
+    'stop_loss_pct':    [5, 10, 15],
     'min_rr':           [1.5, 2.0, 3.0],
     # ADX filter — add True + multiple thresholds to include in sweep
-    'use_adx_filter':   [False],
-    'adx_threshold':    [25],
-    # entry fill patience — add values to include in sweep
-    'max_pending_bars': [5],
+    'use_adx_filter':   [True,False],
+    'adx_threshold':    [15,20,25],
+    # signal_expiry_bars is a strategy param set via .env (SIGNAL_EXPIRY_BARS), not swept here
 }
 
 # ── Optimizer config (can also override via env) ──────────────────────────────

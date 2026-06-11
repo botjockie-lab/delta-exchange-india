@@ -71,6 +71,7 @@ class TradingSignal:
 @dataclass
 class Position:
     order_id: int
+    product_id: int
     symbol: str
     entry_price: float
     size: int
@@ -452,7 +453,8 @@ class OptionsStrategy:
         self.use_ema_filter = os.getenv("USE_EMA_FILTER", "True").lower() == "true"
         self.min_option_price = float(os.getenv("MIN_OPTION_PRICE", "50"))
         self.resolution = os.getenv("RESOLUTION", "15m")
-        
+        self.signal_expiry_bars = int(os.getenv("SIGNAL_EXPIRY_BARS", "20"))
+
         # Risk:Reward parameter
         self.min_rr = float(os.getenv("MIN_RR", "1.5"))
 
@@ -475,6 +477,12 @@ class OptionsStrategy:
         logger.info(f"Strategy initialized for expiry: {self.target_expiry}")
         logger.info(f"Option Type: {self.option_type}")
     
+    @property
+    def _resolution_minutes(self) -> int:
+        mapping = {'1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+                   '1h': 60, '2h': 120, '4h': 240, '6h': 360, '1d': 1440}
+        return mapping.get(self.resolution, 1)
+
     def _get_next_friday(self) -> str:
         """Get next Friday's date in DD-MM-YYYY format"""
         today = datetime.now()
@@ -887,6 +895,7 @@ class OptionsStrategy:
             # Store position
             position = Position(
                 order_id=order_id,
+                product_id=signal.product_id,
                 symbol=signal.symbol,
                 entry_price=signal.entry_price,
                 size=self.position_size,
@@ -894,9 +903,9 @@ class OptionsStrategy:
                 stop_loss=signal.stop_loss,
                 timestamp=time.time()
             )
-            
+
             self.positions[order_id] = position
-            
+
             logger.info(f"✅ MOCK Order placed successfully: ID {order_id}")
             logger.info(f"Reason: {signal.reason}")
             return {"id": order_id, "status": "open", "product_symbol": signal.symbol}
@@ -910,6 +919,7 @@ class OptionsStrategy:
             # Store position
             position = Position(
                 order_id=order_id,
+                product_id=signal.product_id,
                 symbol=signal.symbol,
                 entry_price=signal.entry_price,
                 size=self.position_size,
@@ -917,9 +927,9 @@ class OptionsStrategy:
                 stop_loss=signal.stop_loss,
                 timestamp=time.time()
             )
-            
+
             self.positions[order_id] = position
-            
+
             logger.info(f"Order placed successfully: ID {order_id}")
             logger.info(f"Reason: {signal.reason}")
             
@@ -964,16 +974,32 @@ class OptionsStrategy:
         # Check each position
         positions_to_remove = []
         
+        expiry_seconds = self.signal_expiry_bars * self._resolution_minutes * 60
+
         for order_id, position in self.positions.items():
             # 1. Check if entry order is still pending
             if order_id in open_orders:
                 order = open_orders[order_id]
                 unfilled_size = float(order.get('unfilled_size', 0))
-                
+
                 if unfilled_size == 0:
                     logger.info(f"Position {position.symbol} fully filled")
+                    continue
+
+                # Cancel if signal has expired
+                pending_seconds = time.time() - position.timestamp
+                if pending_seconds > expiry_seconds:
+                    logger.info(
+                        f"⏰ Signal expired for {position.symbol}: "
+                        f"pending {pending_seconds/60:.1f}min > {expiry_seconds/60:.0f}min limit. Cancelling."
+                    )
+                    self.api.cancel_order(order_id, position.product_id)
+                    positions_to_remove.append(order_id)
                 else:
-                    logger.info(f"Position {position.symbol} partially filled: {position.size - unfilled_size}/{position.size}")
+                    logger.info(
+                        f"Position {position.symbol} pending fill "
+                        f"({pending_seconds/60:.1f}min / {expiry_seconds/60:.0f}min)"
+                    )
                 continue
             
             # 2. Check if position is active on exchange (filled entry)

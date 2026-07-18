@@ -183,15 +183,20 @@ class DeltaExchangeAPI:
         }
         return self.make_request('GET', '/tickers', params=params)
     
-    def get_candles(self, symbol: str, resolution: str = '5m', lookback_hours: int = 24) -> Dict:
-        """Get historical candles for symbol"""
+    def get_candles(self, symbol: str, resolution: str = '5m', lookback_hours: int = 24,
+                    use_mark: bool = True) -> Dict:
+        """Get historical candles for symbol.
+
+        use_mark=True prefixes MARK: (option mark price); set False for spot/perp
+        symbols like BTCUSD which have no mark series.
+        """
         # Add buffer to end_time to ensure we get the latest forming candle if available
         end_time = int(time.time()) + 120
         start_time = int(time.time()) - (lookback_hours * 3600)
-        
+
         params = {
             'resolution': resolution,
-            'symbol': f'MARK:{symbol}',  # Use mark price for options
+            'symbol': f'MARK:{symbol}' if use_mark else symbol,
             'start': start_time,
             'end': end_time
         }
@@ -268,83 +273,89 @@ class BollingerBandsAnalyzer:
         return ema
     
     @staticmethod
-    def is_bullish_reversal_candle(candle: Dict, lower_band: float) -> bool:
-        """Detect bullish reversal candle from lower BB"""
+    def is_bullish_reversal_candle(candle: Dict, lower_band: float,
+                                   require_strong_body: bool = False,
+                                   require_strong_bounce: bool = False) -> bool:
+        """Detect bullish reversal candle from lower BB.
+
+        Base condition: low touched the lower band (2% tolerance) and the candle
+        closed green. Optional quality gates (off by default, toggled via params):
+          • require_strong_body   — body > 50% of the candle range
+          • require_strong_bounce — close in the upper 40% of the candle range
+        """
         try:
             if any(k not in candle or candle[k] is None for k in ['open', 'high', 'low', 'close']):
                 return False
-                
+
             open_price = float(candle['open'])
             high_price = float(candle['high'])
             low_price = float(candle['low'])
             close_price = float(candle['close'])
-            volume = float(candle.get('volume') or 0)
-            
+
             # Price touched or went below lower band (2% tolerance)
             touched_lower_band = low_price <= lower_band * 1.02
-            
+
             # Bullish candle
             is_bullish = close_price > open_price
-            
-            # Calculate candle metrics
-            body_size = close_price - open_price
+
+            if not (touched_lower_band and is_bullish):
+                return False
+
             candle_range = high_price - low_price
-            
             if candle_range == 0:
                 return False
-            
+
             # Strong bullish body (>50% of candle range)
-            strong_bullish_body = body_size / candle_range > 0.5
-            
-            # Strong bounce from low (close in upper 60% of candle)
-            strong_bounce = (close_price - low_price) / candle_range > 0.6
-            
-            # Volume confirmation (basic check)
-            volume_ok = volume > 0
-            
-            return touched_lower_band and is_bullish #and strong_bullish_body #and volume_ok #and strong_bounce
-            
+            if require_strong_body and (close_price - open_price) / candle_range <= 0.5:
+                return False
+
+            # Strong bounce from low (close in upper 40% of candle)
+            if require_strong_bounce and (close_price - low_price) / candle_range <= 0.6:
+                return False
+
+            return True
+
         except (ValueError, KeyError) as e:
             logger.error(f"Error in bullish reversal detection: {e}")
             return False
-    
+
     @staticmethod
-    def is_bearish_reversal_candle(candle: Dict, upper_band: float) -> bool:
-        """Detect bearish reversal candle from upper BB"""
+    def is_bearish_reversal_candle(candle: Dict, upper_band: float,
+                                   require_strong_body: bool = False,
+                                   require_strong_rejection: bool = False) -> bool:
+        """Detect bearish reversal candle from upper BB (see bullish counterpart)."""
         try:
             if any(k not in candle or candle[k] is None for k in ['open', 'high', 'low', 'close']):
                 return False
-                
+
             open_price = float(candle['open'])
             high_price = float(candle['high'])
             low_price = float(candle['low'])
             close_price = float(candle['close'])
-            volume = float(candle.get('volume') or 0)
-            
+
             # Price touched or went above upper band (2% tolerance)
             touched_upper_band = high_price >= upper_band * 0.98
-            
+
             # Bearish candle
             is_bearish = close_price < open_price
-            
-            # Calculate candle metrics
-            body_size = open_price - close_price
+
+            if not (touched_upper_band and is_bearish):
+                return False
+
             candle_range = high_price - low_price
-            
             if candle_range == 0:
                 return False
-            
+
             # Strong bearish body (>50% of candle range)
-            strong_bearish_body = body_size / candle_range > 0.5
-            
+            if require_strong_body and (open_price - close_price) / candle_range <= 0.5:
+                return False
+
             # Strong rejection from high (close in lower 40% of candle)
-            strong_rejection = (close_price - low_price) / candle_range < 0.4
-            
-            # Volume confirmation
-            volume_ok = volume > 0
-            
-            return touched_upper_band and is_bearish #and strong_bearish_body #and volume_ok #and strong_rejection
-            
+            if require_strong_rejection and (close_price - low_price) / candle_range >= 0.4:
+                return False
+
+            return True
+
         except (ValueError, KeyError) as e:
             logger.error(f"Error in bearish reversal detection: {e}")
             return False
@@ -458,6 +469,23 @@ class OptionsStrategy:
         # Risk:Reward parameter
         self.min_rr = float(os.getenv("MIN_RR", "1.5"))
 
+        # ── Exit logic (Phase 1) ──────────────────────────────────────────────
+        self.tp_mode = os.getenv("TP_MODE", "fixed").lower()            # 'fixed' | 'upper_band'
+        self.max_bars_in_trade = int(os.getenv("MAX_BARS_IN_TRADE", "0"))   # 0 = off
+        self.trail_activation_pct = float(os.getenv("TRAIL_ACTIVATION_PCT", "0"))
+        self.trail_stop_pct = float(os.getenv("TRAIL_STOP_PCT", "0"))   # 0 = trailing off
+
+        # ── Signal filters (Phase 2) ──────────────────────────────────────────
+        self.require_strong_body = os.getenv("REQUIRE_STRONG_BODY", "False").lower() == "true"
+        self.require_strong_bounce = os.getenv("REQUIRE_STRONG_BOUNCE", "False").lower() == "true"
+        self.min_hours_to_expiry = float(os.getenv("MIN_HOURS_TO_EXPIRY", "0"))  # 0 = off
+        self.use_spot_filter = os.getenv("USE_SPOT_FILTER", "False").lower() == "true"
+        self.spot_bb_period = int(os.getenv("SPOT_BB_PERIOD", "20"))
+        self.spot_bb_std = float(os.getenv("SPOT_BB_STD", "2.0"))
+
+        # Expiry settlement timestamp (12:00 UTC) for the DTE filter
+        self.expiry_ts = self._parse_expiry_ts(self.target_expiry)
+
         # Determine required candles
         max_period = self.bb_period
         if self.use_adx_filter:
@@ -482,6 +510,49 @@ class OptionsStrategy:
         mapping = {'1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
                    '1h': 60, '2h': 120, '4h': 240, '6h': 360, '1d': 1440}
         return mapping.get(self.resolution, 1)
+
+    @staticmethod
+    def _parse_expiry_ts(expiry: str) -> Optional[int]:
+        """Parse a 'DD-MM-YYYY' expiry → unix ts of settlement (12:00 UTC)."""
+        from datetime import timezone
+        try:
+            dd, mm, yyyy = (int(x) for x in expiry.split('-'))
+            return int(datetime(yyyy, mm, dd, 12, 0, tzinfo=timezone.utc).timestamp())
+        except (ValueError, AttributeError):
+            return None
+
+    def _spot_confirms(self, option_type: str) -> bool:
+        """Direction-aware spot-confirmation filter (mirrors the ATM backtest).
+
+        Fetches BTCUSD candles and requires spot to be stretched in the faded
+        direction: PUT entry → spot ≥ upper band; CALL entry → spot ≤ lower band.
+        Returns True (abstains) if spot data is unavailable, so it never silently
+        blocks every trade on a transient fetch error.
+        """
+        lookback_hours = math.ceil(self.spot_bb_period / 60) + 1
+        resp = self.api.get_candles('BTCUSD', resolution=self.resolution,
+                                    lookback_hours=lookback_hours, use_mark=False)
+        if not resp.get('success') or not resp.get('result'):
+            logger.warning("Spot filter: could not fetch BTCUSD candles — abstaining")
+            return True
+        spot = resp['result']
+        spot.reverse()
+        res_secs = self._resolution_minutes * 60
+        now_ts   = time.time()
+        spot = [c for c in spot if int(c.get('time', 0)) + res_secs <= now_ts]
+        bb = self.analyzer.calculate_bollinger_bands(
+            spot, period=self.spot_bb_period, std_dev=self.spot_bb_std)
+        if not bb:
+            return True
+        close = float(spot[-1]['close'])
+        if option_type == 'put':
+            confirmed = close >= bb['upper_band']
+        else:
+            confirmed = close <= bb['lower_band']
+        logger.info(f"Spot filter ({option_type}): close={close:.1f} "
+                    f"[L={bb['lower_band']:.1f} U={bb['upper_band']:.1f}] → "
+                    f"{'confirmed' if confirmed else 'blocked'}")
+        return confirmed
 
     def _get_next_friday(self) -> str:
         """Get next Friday's date in DD-MM-YYYY format"""
@@ -693,13 +764,23 @@ class OptionsStrategy:
         
         candles = candles_response['result']
         candles.reverse()
-        logger.info(f"Received {len(candles)} candles for {symbol}")
-        
+
+        # Drop the still-forming bar(s). get_candles() requests end=now+120, so the
+        # last candle is the current, incomplete bar. Signals must be evaluated on
+        # the last *closed* bar to match the backtest (which trades closed bars).
+        res_secs = self._resolution_minutes * 60
+        now_ts   = time.time()
+        closed   = [c for c in candles if int(c.get('time', 0)) + res_secs <= now_ts]
+        dropped  = len(candles) - len(closed)
+        candles  = closed
+        logger.info(f"Received {len(candles)} closed candles for {symbol} "
+                    f"(dropped {dropped} forming)")
+
         if len(candles) < max(self.bb_period, self.adx_period, self.ema_period):
             # logger.warning(f"Insufficient candle data for {symbol}: {len(candles)} candles")
             return None
-        
-        # Use the latest candle for analysis
+
+        # Use the latest closed candle for analysis
         analysis_candle = candles[-1]
         
         # Calculate Bollinger Bands
@@ -775,30 +856,50 @@ class OptionsStrategy:
         # Skip if price is too low (avoid illiquid options)
         if current_price < self.min_option_price:
             return None
-        
+
+        # DTE filter: skip signals too close to expiry (theta bleed)
+        if self.min_hours_to_expiry > 0 and self.expiry_ts is not None:
+            hours_left = (self.expiry_ts - int(analysis_candle.get('time', 0))) / 3600.0
+            if hours_left < self.min_hours_to_expiry:
+                logger.info(f"Signal for {symbol} skipped: {hours_left:.1f}h to expiry "
+                            f"< {self.min_hours_to_expiry}h DTE limit")
+                return None
+
         signal = None
-        
+
         # Always look for Bullish Reversal from Lower BB to BUY the option
-        if self.analyzer.is_bullish_reversal_candle(analysis_candle, bb['lower_band']):
-            
+        if self.analyzer.is_bullish_reversal_candle(
+                analysis_candle, bb['lower_band'],
+                require_strong_body=self.require_strong_body,
+                require_strong_bounce=self.require_strong_bounce):
+
             # EMA Filter for Longs
             if self.use_ema_filter:
                 if ema is None:
                     logger.info(f"Could not calculate 200 EMA for {symbol}, skipping signal.")
                     return None
-                
+
                 close_price = float(analysis_candle.get('close'))
                 if close_price < ema:
                     logger.info(f"Long signal for {symbol} ignored: Close price ({close_price:.2f}) is below 200 EMA ({ema:.2f})")
                     return None
-            
+
+            # Spot-confirmation filter (direction-aware)
+            if self.use_spot_filter and not self._spot_confirms(option_type):
+                logger.info(f"Long signal for {symbol} ignored: spot not stretched "
+                            f"in the faded direction")
+                return None
+
             # Calculate Stop-Limit Entry Price (High + 1% buffer)
             candle_high = float(analysis_candle.get('high') or current_price)
             entry_price = candle_high * 1.01
-            
+
             # Calculate Risk & Reward metrics
             stop_loss = entry_price * (1 - self.stop_loss_percent / 100)
-            take_profit = entry_price * (1 + self.take_profit_percent / 100)
+            if self.tp_mode == "upper_band":
+                take_profit = bb['upper_band']
+            else:
+                take_profit = entry_price * (1 + self.take_profit_percent / 100)
             target_price = bb['upper_band']
             
             risk = entry_price - stop_loss
@@ -1097,10 +1198,25 @@ class OptionsStrategy:
         logger.info(f"ADX Filter Enabled: {self.use_adx_filter}")
         logger.info(f"EMA Period: {self.ema_period}")
         logger.info(f"EMA Filter Enabled: {self.use_ema_filter}")
-        logger.info(f"Take Profit: {self.take_profit_percent}%")
+        logger.info(f"Take Profit: {self.take_profit_percent}% (mode: {self.tp_mode})")
         logger.info(f"Stop Loss: {self.stop_loss_percent}%")
         logger.info(f"Min Risk:Reward (to upper BB): {self.min_rr}")
-        
+        if self.use_spot_filter:
+            logger.info(f"Spot filter: ON (BB {self.spot_bb_period}/{self.spot_bb_std})")
+        if self.min_hours_to_expiry:
+            logger.info(f"DTE filter: skip signals < {self.min_hours_to_expiry}h to expiry")
+
+        # The trailing/time stop are backtest exit models. The live bot places a
+        # static exchange bracket and does not yet actively manage these exits, so
+        # warn rather than silently ignore them.
+        if self.trail_stop_pct > 0 or self.max_bars_in_trade > 0:
+            logger.warning(
+                "⚠️ TRAIL_STOP_PCT / MAX_BARS_IN_TRADE are set but the live bot does "
+                "not yet enforce trailing or time stops (the exchange bracket uses the "
+                "static SL). These settings affect backtests only. Validation showed the "
+                "trailing stop did not generalize out-of-sample, so it stays off by default."
+            )
+
         self.running = True
         
         while self.running:

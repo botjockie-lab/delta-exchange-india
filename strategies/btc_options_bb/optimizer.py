@@ -59,22 +59,51 @@ logger = logging.getLogger(__name__)
 #   thresholds to get 216×4 = 864.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Default grid: signal-only sweep. Edit freely.
+#
+# ── Staged-sweep findings (120626, 9 days, 11 baseline trades — DIRECTIONAL ONLY) ──
+# Stage 1 (exits, signal frozen at BB(10,3.0)/TP30/SL5/RR2.0):
+#   apparent winner = trailing 10%/10% → PF 3.78, win 55%, maxDD 14.3%, calmar 5.70
+#   (baseline no-trail = PF 3.43, win 36%, maxDD 18.6%).
+# Stage 2 (filters, exit frozen at trailing 10/10):
+#   top row (min_hours_to_expiry=48, PF 9.1, 7 trades) is OVERFIT — it wins by
+#   dropping 4 of 11 trades.
+#
+# ── OUT-OF-SAMPLE RESULT (2026-07-18, expiries 130626 + 190626, same BB(10,3.0)/
+#    TP30/SL5/RR2.0 signal that won on 120626) ──
+#   IMPORTANT CONFOUND: entry hours-to-expiry differs a lot across these three
+#   runs. 120626 entries were mostly <70h to expiry (near-expiry/high-gamma,
+#   the regime the "winner" was found in). 130626 entries were also 18-66h —
+#   SAME regime, a clean out-of-sample test. But 190626's only fetched option
+#   data (Jun 2-12) is 175-293h before its Jun-19 expiry — a different,
+#   low-gamma regime already known (see project memory) to underperform
+#   regardless of directional edge. Don't treat 190626's loss as disproving
+#   the near-expiry signal; it's just a different regime. It would need data
+#   fetched near its own expiry (~Jun 15-19) to be a fair comparison.
+#
+#   The load-bearing result is 130626: same regime as 120626, still loses
+#   (20% win rate, PF 0.23, -27.5% return, 8/10 stop-outs). Trailing 10/10
+#   does not rescue it (PF 0.67->0.23 vs no-trail). DTE/spot/candle-quality
+#   filters were checked too: none turn 130626's loss into a profit, and
+#   use_spot_filter zeroes out trades entirely on 120626. Conclusion: on the
+#   one clean out-of-sample test available, the 120626 backtest was curve-fit
+#   to that window, not a validated edge. Do not bake any of these "winners"
+#   into the default grid — sweep them fresh (including 0/off) on every new
+#   dataset, and control for hours-to-expiry when comparing across expiries.
 PARAM_GRID: Dict[str, list] = {
-    # bb_period: dropped 15 (weakly supported, signals overlap with 10/20)
     'bb_period':        [10, 20, 30],
-    # bb_std_dev: dropped 0.5 (redundant signals) and 2.5 (never appeared in top-20)
     'bb_std_dev':       [1.0, 1.5, 2.0, 3.0],
-    # take_profit_pct: dropped 10 (always underperformed; kills R:R at min_rr constraints)
     'take_profit_pct':  [20, 30],
     'stop_loss_pct':    [5, 10, 15],
     'min_rr':           [1.5, 2.0, 3.0],
-    # ADX filter: fixed off — prior run showed identical results with/without it
     'use_adx_filter':   [False],
     'adx_threshold':    [20],
-    # EMA filter: fixed off — no prior data; re-enable once ADX case is established
     'use_ema_filter':   [False],
     'ema_period':       [50],
-    # signal_expiry_bars is a strategy param set via .env (SIGNAL_EXPIRY_BARS), not swept here
+    'tp_mode':              ['fixed'],
+    'max_bars_in_trade':    [0],
+    'trail_activation_pct': [0, 10],
+    'trail_stop_pct':       [0, 10],
 }
 
 # ── Optimizer config (can also override via env) ──────────────────────────────
@@ -112,14 +141,14 @@ def _run_combo(args) -> Optional[Dict]:
 
 def _run_atm_combo(args) -> Optional[Dict]:
     """ATM-mode worker: one combo against the pre-loaded spot + strike data."""
-    spot_candles, call_by_strike, put_by_strike, params_dict = args
+    spot_candles, call_by_strike, put_by_strike, expiry, params_dict = args
 
     base = asdict(BacktestParams())
     base.update(params_dict)
     p = BacktestParams(**base)
 
     trades = run_atm_backtest(spot_candles, call_by_strike, put_by_strike,
-                              p, STRIKE_INTERVAL)
+                              p, STRIKE_INTERVAL, expiry=expiry)
     m = compute_metrics(trades)
     if m['total_trades'] < MIN_TRADES:
         return None
@@ -147,6 +176,13 @@ def build_combos(grid: Dict[str, list]) -> List[Dict]:
             canonical['adx_threshold'] = None
         if not canonical.get('use_ema_filter', True):
             canonical['ema_period'] = None
+        # Trailing off → activation pct is irrelevant
+        if not canonical.get('trail_stop_pct', 0):
+            canonical['trail_activation_pct'] = None
+        # Spot filter off → its BB params are irrelevant
+        if not canonical.get('use_spot_filter', False):
+            canonical['spot_bb_period'] = None
+            canonical['spot_bb_std']    = None
 
         key = tuple(sorted(canonical.items()))
         if key in seen:
@@ -195,7 +231,8 @@ def main():
 
         mode_label   = f"ATM (expiry={args.expiry}, interval={STRIKE_INTERVAL})"
         worker_fn    = _run_atm_combo
-        worker_args  = [(spot_candles, call_by_strike, put_by_strike, c) for c in combos]
+        worker_args  = [(spot_candles, call_by_strike, put_by_strike, args.expiry, c)
+                        for c in combos]
 
     # ── Per-symbol mode ───────────────────────────────────────────────────────
     else:

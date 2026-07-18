@@ -157,21 +157,45 @@ python strategies/btc_options_bb/strategy.py
 
 ---
 
-## Current Best Parameters (120626 expiry, 9-day ATM grid search)
+## Parameter Search Status — no validated edge yet
 
-| Parameter | Value |
-|---|---|
-| `BB_PERIOD` | 10 |
-| `BB_STD_DEV` | 3.0 |
-| `TAKE_PROFIT_PERCENT` | 30 |
-| `STOP_LOSS_PERCENT` | 5 |
-| `MIN_RR` | 2.0 |
-| `USE_ADX_FILTER` | False |
-| `USE_EMA_FILTER` | False |
+The grid search on the 120626 expiry (9 days, 11 trades) found BB(10, 3.0) / TP 30% /
+SL 5% / MIN_RR 2.0 with PF 3.43 · Calmar 5.36 · Max DD 18.55% · win rate 36.4%, and a
+follow-up sweep found a 10%/10% trailing stop improved that further (PF 3.78, win 55%).
 
-Backtest result (11 trades, 9 days): PF 3.43 · Calmar 5.36 · Max DD 18.55% · Win rate 36.4%
+That result **did not hold out-of-sample** — but the two comparison expiries
+aren't equally clean tests, because time-to-expiry (gamma) is itself a
+confound (see below). Checking hours-to-expiry at entry for every trade:
 
-> **Note:** 11 trades over 9 days is a small sample. Validate across multiple expiries before trading live.
+| Expiry | Trades | Win rate | PF | Total return | Entry hrs-to-expiry | Regime vs. 120626 |
+|---|---|---|---|---|---|---|
+| 120626 (in-sample) | 11 | 54.5% | 3.78 | +81.4% | 19–231h (mostly <70h) | near-expiry |
+| 130626 (out-of-sample) | 10 | 20.0% | 0.23 | **-27.5%** | 18–66h | **same regime — clean test** |
+| 190626 (out-of-sample) | 5 | 0.0% | 0.00 | **-22.6%** | 175–293h | different (far-from-expiry) — **confounded** |
+
+- **130626 is the load-bearing result**: same near-expiry/high-gamma regime as
+  120626, same signal/exit config, and it loses decisively (8/10 stop-outs).
+  This is a genuine out-of-sample failure of the signal itself.
+- **190626 is not a fair like-for-like test.** The only option data fetched for
+  it spans June 2–12, but that expiry settles June 19 — every trade in this
+  test is 7–12 days out, a low-gamma regime already known (from prior sessions)
+  to underperform regardless of directional edge. Its loss doesn't tell us
+  anything new about whether the near-expiry signal generalizes; it would need
+  data fetched close to its own expiry (~June 15–19) for a clean comparison,
+  which isn't available here.
+
+The trailing stop and every signal filter tested (DTE cutoff, spot-confirmation,
+candle-quality gates) were also checked against both out-of-sample expiries —
+none rescued 130626 (the clean test), and the DTE filter's apparent PF 9.1 "win"
+on 120626 turned out to be overfitting (it wins only by dropping 4 of 11 trades).
+See the sweep notes at the top of `optimizer.py` for the full breakdown.
+
+**Conclusion:** on the one clean out-of-sample test available (130626, matched
+regime), the 120626 backtest's edge does not replicate — it was curve-fit to
+that specific window. None of these parameters should be used for live trading.
+`env.example` ships with all trailing-stop and filter toggles off (0/False) for
+this reason — treat that as the safe default until a genuinely predictive signal
+is found across multiple expiries in the *same* time-to-expiry regime.
 
 ---
 

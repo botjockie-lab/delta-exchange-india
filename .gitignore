@@ -16,3 +16,16 @@ options_strategy.log
 
 # Generated Output
 charts/
+
+# btc_liquidity_sweep: raw fetched data (~800MB+) and the product-catalogue
+# cache are fully reproducible via data_fetch.py -- only the timestamped
+# sweep-result CSVs under data/btc_liquidity_sweep/results/ are committed.
+data/btc_liquidity_sweep/options/
+data/btc_liquidity_sweep/spot/
+data/btc_liquidity_sweep/products_cache_BTC.json
+# Loose single-run outputs (overwritten by every run_backtest.py call) --
+# distinct from the timestamped sweep_*/session_sweep_*/rolling_session_sweep_*
+# CSVs in the same directory, which ARE committed.
+data/btc_liquidity_sweep/results/trades.csv
+data/btc_liquidity_sweep/results/equity.csv
+data/btc_liquidity_sweep/results/summary.json

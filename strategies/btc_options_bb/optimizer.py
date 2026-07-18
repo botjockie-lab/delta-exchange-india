@@ -71,15 +71,25 @@ logger = logging.getLogger(__name__)
 #
 # ── OUT-OF-SAMPLE RESULT (2026-07-18, expiries 130626 + 190626, same BB(10,3.0)/
 #    TP30/SL5/RR2.0 signal that won on 120626) ──
-#   The signal itself does not generalize: PF 0.23–0.67, total return -18% to
-#   -27% on 130626 (10 trades); 0% win rate / -22.6% on 190626 (5 trades).
-#   Trailing 10/10 does NOT rescue this — it makes 130626 worse (PF 0.67→0.23,
-#   -18%→-27%) and is a no-op on 190626 (no winners to trail). The DTE/spot/
-#   candle-quality filters were tested too: none turn a loss into a profit on
-#   either out-of-sample expiry, and use_spot_filter zeroes out trades entirely
-#   on 120626. Conclusion: the 120626 backtest was curve-fit to that 9-day
-#   window, not a validated edge. Do not bake any of these "winners" into the
-#   default grid — sweep them fresh (including 0/off) on every new dataset.
+#   IMPORTANT CONFOUND: entry hours-to-expiry differs a lot across these three
+#   runs. 120626 entries were mostly <70h to expiry (near-expiry/high-gamma,
+#   the regime the "winner" was found in). 130626 entries were also 18-66h —
+#   SAME regime, a clean out-of-sample test. But 190626's only fetched option
+#   data (Jun 2-12) is 175-293h before its Jun-19 expiry — a different,
+#   low-gamma regime already known (see project memory) to underperform
+#   regardless of directional edge. Don't treat 190626's loss as disproving
+#   the near-expiry signal; it's just a different regime. It would need data
+#   fetched near its own expiry (~Jun 15-19) to be a fair comparison.
+#
+#   The load-bearing result is 130626: same regime as 120626, still loses
+#   (20% win rate, PF 0.23, -27.5% return, 8/10 stop-outs). Trailing 10/10
+#   does not rescue it (PF 0.67->0.23 vs no-trail). DTE/spot/candle-quality
+#   filters were checked too: none turn 130626's loss into a profit, and
+#   use_spot_filter zeroes out trades entirely on 120626. Conclusion: on the
+#   one clean out-of-sample test available, the 120626 backtest was curve-fit
+#   to that window, not a validated edge. Do not bake any of these "winners"
+#   into the default grid — sweep them fresh (including 0/off) on every new
+#   dataset, and control for hours-to-expiry when comparing across expiries.
 PARAM_GRID: Dict[str, list] = {
     'bb_period':        [10, 20, 30],
     'bb_std_dev':       [1.0, 1.5, 2.0, 3.0],

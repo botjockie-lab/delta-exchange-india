@@ -157,21 +157,32 @@ python strategies/btc_options_bb/strategy.py
 
 ---
 
-## Current Best Parameters (120626 expiry, 9-day ATM grid search)
+## Parameter Search Status — no validated edge yet
 
-| Parameter | Value |
-|---|---|
-| `BB_PERIOD` | 10 |
-| `BB_STD_DEV` | 3.0 |
-| `TAKE_PROFIT_PERCENT` | 30 |
-| `STOP_LOSS_PERCENT` | 5 |
-| `MIN_RR` | 2.0 |
-| `USE_ADX_FILTER` | False |
-| `USE_EMA_FILTER` | False |
+The grid search on the 120626 expiry (9 days, 11 trades) found BB(10, 3.0) / TP 30% /
+SL 5% / MIN_RR 2.0 with PF 3.43 · Calmar 5.36 · Max DD 18.55% · win rate 36.4%, and a
+follow-up sweep found a 10%/10% trailing stop improved that further (PF 3.78, win 55%).
 
-Backtest result (11 trades, 9 days): PF 3.43 · Calmar 5.36 · Max DD 18.55% · Win rate 36.4%
+That result **did not hold out-of-sample**. Re-running the identical signal and
+exit config against two other expiries (130626, 190626) produced:
 
-> **Note:** 11 trades over 9 days is a small sample. Validate across multiple expiries before trading live.
+| Expiry | Trades | Win rate | PF | Total return | Notes |
+|---|---|---|---|---|---|
+| 120626 (in-sample) | 11 | 54.5% | 3.78 | +81.4% | trailing 10/10 |
+| 130626 (out-of-sample) | 10 | 20.0% | 0.23 | **-27.5%** | trailing 10/10 |
+| 190626 (out-of-sample) | 5 | 0.0% | 0.00 | **-22.6%** | trailing 10/10 |
+
+The trailing stop and every signal filter tested (DTE cutoff, spot-confirmation,
+candle-quality gates) were also checked out-of-sample — none rescued the losing
+expiries, and the DTE filter's apparent PF 9.1 "win" on 120626 turned out to be
+overfitting (it wins only by dropping 4 of 11 trades). See the sweep notes at the
+top of `optimizer.py` for the full breakdown.
+
+**Conclusion:** the 120626 backtest was curve-fit to that specific 9-day window,
+not a validated edge. None of these parameters should be used for live trading.
+`env.example` ships with all trailing-stop and filter toggles off (0/False) for
+this reason — treat that as the safe default until a genuinely predictive signal
+is found across multiple expiries.
 
 ---
 

@@ -33,7 +33,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
 from backtest import (BacktestParams, load_csv, check_signal, check_exit,
-                      try_fill, compute_metrics, print_summary, plot_equity_curve)
+                      try_fill, compute_metrics, print_summary, plot_equity_curve,
+                      manage_open_trade, build_open_trade, record_trade, expiry_to_ts)
 from strategy import BollingerBandsAnalyzer
 
 load_dotenv()
@@ -119,12 +120,37 @@ def _build_indices(
 
 # ── Core ATM backtest ─────────────────────────────────────────────────────────
 
+def _spot_confirms(spot_candles: List[Dict], spot_idx: int, opt_type: str,
+                   p: BacktestParams, analyzer: BollingerBandsAnalyzer) -> bool:
+    """
+    Direction-aware spot-confirmation filter. The option's lower-band bounce is a
+    contrarian bet on spot, so require spot to be stretched in the faded direction:
+      • PUT  entry → require spot stretched UP   (close ≥ spot upper band)
+      • CALL entry → require spot stretched DOWN (close ≤ spot lower band)
+    Returns True when confirmed (or when there isn't enough spot history yet, so
+    the filter never silently blocks early bars — it just abstains).
+    """
+    start = spot_idx - p.spot_bb_period + 1
+    if start < 0:
+        return True
+    window = spot_candles[start: spot_idx + 1]
+    bb = analyzer.calculate_bollinger_bands(window, period=p.spot_bb_period,
+                                            std_dev=p.spot_bb_std)
+    if not bb:
+        return True
+    close = float(spot_candles[spot_idx]['close'])
+    if opt_type == 'P':
+        return close >= bb['upper_band']
+    return close <= bb['lower_band']
+
+
 def run_atm_backtest(
     spot_candles:     List[Dict],
     call_by_strike:   Dict[int, List],
     put_by_strike:    Dict[int, List],
     p:                BacktestParams,
     strike_interval:  int = 200,
+    expiry:           Optional[str] = None,
 ) -> List[Dict]:
     """
     ATM-following backtest. Returns a combined list of trades (calls + puts).
@@ -132,11 +158,14 @@ def run_atm_backtest(
     For each bar in spot_candles:
       • flat    → determine ATM, check ATM CE then ATM PE for signals
       • pending → track fill on the pending strike's own candles
-      • in_trade→ track TP/SL on the entry strike's own candles
+      • in_trade→ track TP/SL/TIME/TRAIL on the entry strike's own candles
 
     signal detection uses each strike's own candle history so BB/EMA are clean.
+    `expiry` (DDMMYY) enables the DTE filter; the spot-confirmation filter
+    (p.use_spot_filter) uses the spot series directly.
     """
     analyzer = BollingerBandsAnalyzer()
+    expiry_ts = expiry_to_ts(expiry) if expiry else None
 
     call_idx = _build_indices(call_by_strike)   # {strike: (t2i, t2c)}
     put_idx  = _build_indices(put_by_strike)
@@ -153,7 +182,7 @@ def run_atm_backtest(
     trade_strike: Optional[int]  = None
     entry_bar:    Optional[int]  = None   # bar-idx within entry strike's candle list
 
-    for spot_bar in spot_candles:
+    for spot_idx, spot_bar in enumerate(spot_candles):
         t          = int(spot_bar['time'])
         spot_price = float(spot_bar['close'])
 
@@ -165,19 +194,12 @@ def run_atm_backtest(
             if candle is None:
                 continue
 
-            result = check_exit(candle, open_trade['take_profit'], open_trade['stop_loss'])
+            cur_bar = t2i.get(t, entry_bar)
+            result  = manage_open_trade(candle, open_trade, p, cur_bar - entry_bar)
             if result:
                 outcome, exit_price = result
-                cur_bar = t2i.get(t, entry_bar)
-                pct = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
-                trades.append({
-                    **open_trade,
-                    'exit_time':   datetime.fromtimestamp(t),
-                    'exit_price':  round(exit_price, 4),
-                    'pct_return':  round(pct, 2),
-                    'outcome':     outcome,
-                    'bars_held':   cur_bar - entry_bar,
-                })
+                record_trade(trades, open_trade, t, exit_price,
+                             outcome, cur_bar - entry_bar)
                 state = 'flat'
                 open_trade = trade_type = trade_strike = entry_bar = None
 
@@ -194,34 +216,16 @@ def run_atm_backtest(
                     trade_strike = pending['strike']
                     entry_bar    = t2i.get(t, 0)
                     state        = 'in_trade'
-                    open_trade   = {
-                        'symbol':      f"{trade_type}-BTC-{trade_strike}",
-                        'signal_time': datetime.fromtimestamp(pending['signal_candle']['time']),
-                        'entry_time':  datetime.fromtimestamp(t),
-                        'entry_price': round(pending['entry_price'], 4),
-                        'take_profit': round(pending['take_profit'], 4),
-                        'stop_loss':   round(pending['stop_loss'],   4),
-                        'upper_band':  round(pending['upper_band'],  4),
-                        'lower_band':  round(pending['lower_band'],  4),
-                        'rr_ratio':    round(pending['rr_ratio'],    2),
-                        'adx':         round(pending['adx'], 2) if pending.get('adx') else None,
-                        'spot_at_entry': round(spot_price, 0),
-                    }
+                    open_trade   = build_open_trade(
+                        f"{trade_type}-BTC-{trade_strike}", pending, t)
+                    open_trade['spot_at_entry'] = round(spot_price, 0)
                     pending = None
 
                     # Check exit on the same fill bar
-                    result = check_exit(candle, open_trade['take_profit'], open_trade['stop_loss'])
+                    result = manage_open_trade(candle, open_trade, p, 0)
                     if result:
                         outcome, exit_price = result
-                        pct = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
-                        trades.append({
-                            **open_trade,
-                            'exit_time':   datetime.fromtimestamp(t),
-                            'exit_price':  round(exit_price, 4),
-                            'pct_return':  round(pct, 2),
-                            'outcome':     outcome,
-                            'bars_held':   0,
-                        })
+                        record_trade(trades, open_trade, t, exit_price, outcome, 0)
                         state = 'flat'
                         open_trade = trade_type = trade_strike = entry_bar = None
 
@@ -244,8 +248,12 @@ def run_atm_backtest(
                     continue
 
                 candles = by_strike[atm]
-                signal  = check_signal(candles, bar_idx, analyzer, p)
+                signal  = check_signal(candles, bar_idx, analyzer, p, expiry_ts=expiry_ts)
                 if signal:
+                    # Spot-confirmation filter (ATM-only — needs the spot series)
+                    if p.use_spot_filter and not _spot_confirms(
+                            spot_candles, spot_idx, opt_type, p, analyzer):
+                        continue
                     signal['strike']   = atm
                     signal['opt_type'] = opt_type
                     state        = 'pending'
@@ -256,22 +264,14 @@ def run_atm_backtest(
     # ── Close any open trade at end of data ───────────────────────────────────
     if state == 'in_trade' and open_trade:
         idx_map = call_idx if trade_type == 'C' else put_idx
-        _, t2c  = idx_map.get(trade_strike, ({}, {}))
+        t2i, t2c = idx_map.get(trade_strike, ({}, {}))
         # Use the last available candle for this strike
         if t2c:
             last_candle = list(t2c.values())[-1]
-            exit_price  = float(last_candle['close'])
-            pct = (exit_price - open_trade['entry_price']) / open_trade['entry_price'] * 100
-            t2i, _ = idx_map.get(trade_strike, ({}, {}))
-            last_bar = max(t2i.values()) if t2i else entry_bar
-            trades.append({
-                **open_trade,
-                'exit_time':  datetime.fromtimestamp(last_candle['time']),
-                'exit_price': round(exit_price, 4),
-                'pct_return': round(pct, 2),
-                'outcome':    'OPEN_AT_END',
-                'bars_held':  last_bar - entry_bar,
-            })
+            last_bar    = max(t2i.values()) if t2i else entry_bar
+            record_trade(trades, open_trade, last_candle['time'],
+                         float(last_candle['close']), 'OPEN_AT_END',
+                         last_bar - entry_bar)
 
     return trades
 
@@ -306,6 +306,7 @@ def main():
     trades = run_atm_backtest(
         spot_candles, call_by_strike, put_by_strike, p,
         strike_interval=args.interval,
+        expiry=args.expiry,
     )
 
     label = f"ATM-Following (expiry={args.expiry}, interval={args.interval})"

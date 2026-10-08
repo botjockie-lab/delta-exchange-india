@@ -8,18 +8,32 @@ Automated cryptocurrency options trading bot for Delta Exchange (India), with a 
 
 ```
 strategies/
-└── btc_options_bb/
-    ├── strategy.py          # Live trading bot
-    ├── fetch.py             # Historical candle data fetcher
-    ├── backtest.py          # Per-symbol backtester
-    ├── atm_backtest.py      # ATM-following backtester
-    └── optimizer.py         # Grid-search parameter optimizer
+├── btc_options_bb/
+│   ├── strategy.py          # Live trading bot
+│   ├── fetch.py             # Historical candle data fetcher
+│   ├── backtest.py          # Per-symbol backtester
+│   ├── atm_backtest.py      # ATM-following backtester
+│   └── optimizer.py         # Grid-search parameter optimizer
+└── btc_liquidity_sweep/     # Research-only backtest port of a "liquidity sweep"
+    ├── data_fetch.py        #   entry strategy (dhan_agent) to Delta 0-DTE BTC options
+    ├── engine.py             # See its README section below.
+    ├── costs.py
+    ├── stats.py
+    ├── run_backtest.py
+    ├── optimizer.py
+    ├── session_sweep.py
+    └── rolling_session_sweep.py
 
 data/
-└── btc_options_bb/
-    ├── spot/                # BTC spot/perp candle CSVs
-    ├── options/{expiry}/    # Option candle CSVs per expiry
-    └── results/             # Timestamped optimizer output + trade logs
+├── btc_options_bb/
+│   ├── spot/                # BTC spot/perp candle CSVs
+│   ├── options/{expiry}/    # Option candle CSVs per expiry
+│   └── results/             # Timestamped optimizer output + trade logs
+└── btc_liquidity_sweep/
+    └── results/              # Timestamped sweep-result CSVs (committed).
+                                # Raw fetched option/spot data and the product
+                                # catalogue cache are gitignored -- ~800MB+ and
+                                # fully reproducible via data_fetch.py.
 
 charts/
 └── btc_options_bb/          # Equity curve PNGs
@@ -29,6 +43,49 @@ pnl_analysis/
 ```
 
 Each strategy lives in its own subdirectory under `strategies/` and owns its data under `data/`. Adding a new strategy means creating a parallel `strategies/new_strategy/` tree.
+
+---
+
+## `btc_liquidity_sweep` — research port, no live bot (yet)
+
+A backtest-only port of a "liquidity sweep" options entry strategy (originally
+built for NSE index options against a different broker) to Delta's BTC 0-DTE
+(daily-expiry) options: a resting BUY limit at an ITM-N option's own day-low
+(or a higher-timeframe bucket low), managed with SL/target/step-trailing exit,
+reset on a timer and re-struck if it goes stale before filling. There is no
+live trading component — see the module docstrings for the full mechanics.
+
+**Data**: Delta serves real per-contract OHLCV directly by exact symbol via
+`/v2/history/candles`, unauthenticated, even long after expiry — no
+reconstruction trick needed (unlike the broker this was ported from).
+`data_fetch.py` pulls each daily contract's full ~24h life (previous day's
+settlement to its own settlement) for the last N days.
+
+```bash
+python strategies/btc_liquidity_sweep/data_fetch.py --days-back 365 --resolution 5m
+python strategies/btc_liquidity_sweep/run_backtest.py --itm 0 --sl-pct-of-entry 0.9 --rr 3.0
+python strategies/btc_liquidity_sweep/optimizer.py --workers 6          # SL/RR/itm/etc. grid sweep
+python strategies/btc_liquidity_sweep/session_sweep.py --workers 6      # (start,end) session-window grid
+python strategies/btc_liquidity_sweep/rolling_session_sweep.py --workers 6  # 6h windows across the full 24h life
+```
+
+**Findings (one year of BTC 0-DTE data, 2025-07 to 2026-07)**: across seven
+staged sweeps (SL%, RR, ITM offset, restrike cadence, reset interval, htf
+reference-low mode, and two rounds of session-window search), no
+configuration was found that's both profitable *and* passes basic robustness
+checks. One window (17:30–23:30 IST, right after a fresh contract starts
+trading) crossed profit factor 1.0 with a whole region of SL/RR values
+working, not just one lucky combo — but even the most moderate version of it
+loses money once the top 5 winning trades are excluded, and is net negative
+across the most recent 5 months of the dataset despite being profitable
+overall. That pattern (strong-looking aggregate result, collapses under a
+tail-dependency or out-of-sample check) matches what happened with the
+Bollinger-Bands strategy on the same underlying (see `btc_options_bb`'s
+history) — treat it as informative, not as a validated edge.
+
+Full sweep-by-sweep detail (every parameter tested, every result, why each
+dead end was ruled out) is in `optimizer.py`'s "Sweep history" comment block
+and in the timestamped result CSVs under `data/btc_liquidity_sweep/results/`.
 
 ---
 

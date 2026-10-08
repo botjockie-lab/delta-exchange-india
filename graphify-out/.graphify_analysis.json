@@ -1,0 +1,388 @@
+{
+  "communities": {
+    "0": [
+      "datetime",
+      "dotenv",
+      "itertools",
+      "logging",
+      "strategies_btc_options_bb_atm_backtest",
+      "strategies_btc_options_bb_atm_backtest_build_indices",
+      "strategies_btc_options_bb_atm_backtest_get_atm_strike",
+      "strategies_btc_options_bb_atm_backtest_load_option_strikes",
+      "strategies_btc_options_bb_atm_backtest_main",
+      "strategies_btc_options_bb_atm_backtest_nearest_available",
+      "strategies_btc_options_bb_atm_backtest_rationale_106",
+      "strategies_btc_options_bb_atm_backtest_rationale_129",
+      "strategies_btc_options_bb_atm_backtest_rationale_2",
+      "strategies_btc_options_bb_atm_backtest_rationale_55",
+      "strategies_btc_options_bb_atm_backtest_rationale_71",
+      "strategies_btc_options_bb_atm_backtest_run_atm_backtest",
+      "strategies_btc_options_bb_backtest",
+      "strategies_btc_options_bb_backtest_backtestparams",
+      "strategies_btc_options_bb_backtest_backtestparams_from_env",
+      "strategies_btc_options_bb_backtest_backtestparams_label",
+      "strategies_btc_options_bb_backtest_backtestparams_required_candles",
+      "strategies_btc_options_bb_backtest_check_exit",
+      "strategies_btc_options_bb_backtest_check_signal",
+      "strategies_btc_options_bb_backtest_compute_metrics",
+      "strategies_btc_options_bb_backtest_load_csv",
+      "strategies_btc_options_bb_backtest_main",
+      "strategies_btc_options_bb_backtest_plot_equity_curve",
+      "strategies_btc_options_bb_backtest_print_summary",
+      "strategies_btc_options_bb_backtest_rationale_118",
+      "strategies_btc_options_bb_backtest_rationale_192",
+      "strategies_btc_options_bb_backtest_rationale_2",
+      "strategies_btc_options_bb_backtest_run_backtest",
+      "strategies_btc_options_bb_backtest_try_fill",
+      "strategies_btc_options_bb_optimizer",
+      "strategies_btc_options_bb_optimizer_build_combos",
+      "strategies_btc_options_bb_optimizer_main",
+      "strategies_btc_options_bb_optimizer_rationale_114",
+      "strategies_btc_options_bb_optimizer_rationale_133",
+      "strategies_btc_options_bb_optimizer_rationale_2",
+      "strategies_btc_options_bb_optimizer_rationale_91",
+      "strategies_btc_options_bb_optimizer_run_atm_combo",
+      "strategies_btc_options_bb_optimizer_run_combo",
+      "sys",
+      "typing"
+    ],
+    "1": [
+      "strategies_btc_options_bb_strategy_deltaexchangeapi",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_cancel_order",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_generate_signature",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_get_btc_spot_price",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_get_candles",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_get_option_chain",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_get_orders",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_get_positions",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_init",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_make_request",
+      "strategies_btc_options_bb_strategy_deltaexchangeapi_place_order",
+      "strategies_btc_options_bb_strategy_main",
+      "strategies_btc_options_bb_strategy_optionsstrategy",
+      "strategies_btc_options_bb_strategy_optionsstrategy_get_next_friday",
+      "strategies_btc_options_bb_strategy_optionsstrategy_get_target_strikes",
+      "strategies_btc_options_bb_strategy_optionsstrategy_get_target_strikes_find_best_option",
+      "strategies_btc_options_bb_strategy_optionsstrategy_init",
+      "strategies_btc_options_bb_strategy_optionsstrategy_monitor_positions",
+      "strategies_btc_options_bb_strategy_optionsstrategy_place_bracket_order",
+      "strategies_btc_options_bb_strategy_optionsstrategy_resolution_minutes",
+      "strategies_btc_options_bb_strategy_optionsstrategy_run_strategy_cycle",
+      "strategies_btc_options_bb_strategy_optionsstrategy_start",
+      "strategies_btc_options_bb_strategy_optionsstrategy_stop",
+      "strategies_btc_options_bb_strategy_position",
+      "strategies_btc_options_bb_strategy_rationale_100",
+      "strategies_btc_options_bb_strategy_rationale_1019",
+      "strategies_btc_options_bb_strategy_rationale_1090",
+      "strategies_btc_options_bb_strategy_rationale_1140",
+      "strategies_btc_options_bb_strategy_rationale_174",
+      "strategies_btc_options_bb_strategy_rationale_178",
+      "strategies_btc_options_bb_strategy_rationale_187",
+      "strategies_btc_options_bb_strategy_rationale_201",
+      "strategies_btc_options_bb_strategy_rationale_217",
+      "strategies_btc_options_bb_strategy_rationale_428",
+      "strategies_btc_options_bb_strategy_rationale_487",
+      "strategies_btc_options_bb_strategy_rationale_496",
+      "strategies_btc_options_bb_strategy_rationale_84",
+      "strategies_btc_options_bb_strategy_rationale_850",
+      "strategies_btc_options_bb_strategy_rationale_93",
+      "strategies_btc_options_bb_strategy_rationale_943"
+    ],
+    "2": [
+      "argparse",
+      "glob",
+      "json",
+      "multiprocessing",
+      "pandas",
+      "strategies_btc_liquidity_sweep_optimizer",
+      "strategies_btc_liquidity_sweep_optimizer_build_combos",
+      "strategies_btc_liquidity_sweep_optimizer_init_worker",
+      "strategies_btc_liquidity_sweep_optimizer_main",
+      "strategies_btc_liquidity_sweep_optimizer_rationale_2",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_build_windows",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_init_worker",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_ist_label",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_main",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_rationale_2",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_rationale_83",
+      "strategies_btc_liquidity_sweep_run_backtest",
+      "strategies_btc_liquidity_sweep_run_backtest_load_daily_frames",
+      "strategies_btc_liquidity_sweep_run_backtest_main",
+      "strategies_btc_liquidity_sweep_run_backtest_rationale_2",
+      "strategies_btc_liquidity_sweep_session_sweep",
+      "strategies_btc_liquidity_sweep_session_sweep_build_combos",
+      "strategies_btc_liquidity_sweep_session_sweep_init_worker",
+      "strategies_btc_liquidity_sweep_session_sweep_main",
+      "strategies_btc_liquidity_sweep_session_sweep_rationale_2",
+      "strategies_btc_liquidity_sweep_stats",
+      "strategies_btc_liquidity_sweep_stats_build_equity_curve",
+      "strategies_btc_liquidity_sweep_stats_py_dataframe",
+      "strategies_btc_liquidity_sweep_stats_rationale_1",
+      "strategies_btc_liquidity_sweep_stats_summarize"
+    ],
+    "3": [
+      "dataclasses",
+      "math",
+      "strategies_btc_liquidity_sweep_costs",
+      "strategies_btc_liquidity_sweep_costs_apply_costs",
+      "strategies_btc_liquidity_sweep_costs_costmodel",
+      "strategies_btc_liquidity_sweep_costs_rationale_1",
+      "strategies_btc_liquidity_sweep_costs_rationale_32",
+      "strategies_btc_liquidity_sweep_engine",
+      "strategies_btc_liquidity_sweep_engine_backtestconfig",
+      "strategies_btc_liquidity_sweep_engine_compute_pnl",
+      "strategies_btc_liquidity_sweep_engine_compute_trailing_sl",
+      "strategies_btc_liquidity_sweep_engine_day_low_so_far",
+      "strategies_btc_liquidity_sweep_engine_htf_bucket_low",
+      "strategies_btc_liquidity_sweep_engine_py_dataframe",
+      "strategies_btc_liquidity_sweep_engine_rationale_1",
+      "strategies_btc_liquidity_sweep_engine_rationale_102",
+      "strategies_btc_liquidity_sweep_engine_rationale_115",
+      "strategies_btc_liquidity_sweep_engine_rationale_311",
+      "strategies_btc_liquidity_sweep_engine_rationale_46",
+      "strategies_btc_liquidity_sweep_engine_rationale_66",
+      "strategies_btc_liquidity_sweep_engine_resolve_itm_strike",
+      "strategies_btc_liquidity_sweep_engine_resolve_reference_low",
+      "strategies_btc_liquidity_sweep_engine_run_backtest",
+      "strategies_btc_liquidity_sweep_engine_run_session",
+      "strategies_btc_liquidity_sweep_engine_run_session_candles_between",
+      "strategies_btc_liquidity_sweep_engine_run_session_place_pending",
+      "strategies_btc_liquidity_sweep_engine_run_session_spot_at",
+      "strategies_btc_liquidity_sweep_engine_run_session_try_fill_and_manage",
+      "strategies_btc_liquidity_sweep_optimizer_run_combo",
+      "strategies_btc_liquidity_sweep_rolling_session_sweep_run_combo",
+      "strategies_btc_liquidity_sweep_session_sweep_run_combo"
+    ],
+    "4": [
+      "concurrent_futures",
+      "os",
+      "requests",
+      "strategies_btc_liquidity_sweep_data_fetch",
+      "strategies_btc_liquidity_sweep_data_fetch_build_daily_expiry_index",
+      "strategies_btc_liquidity_sweep_data_fetch_fetch_all_products",
+      "strategies_btc_liquidity_sweep_data_fetch_fetch_dte0_dataset",
+      "strategies_btc_liquidity_sweep_data_fetch_fetch_one_symbol",
+      "strategies_btc_liquidity_sweep_data_fetch_fetch_spot_history",
+      "strategies_btc_liquidity_sweep_data_fetch_get",
+      "strategies_btc_liquidity_sweep_data_fetch_main",
+      "strategies_btc_liquidity_sweep_data_fetch_py_dataframe",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_100",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_126",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_182",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_2",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_42",
+      "strategies_btc_liquidity_sweep_data_fetch_rationale_59",
+      "strategies_btc_liquidity_sweep_data_fetch_spot_range_for_window",
+      "strategies_btc_liquidity_sweep_data_fetch_strikes_in_band",
+      "strategies_btc_options_bb_fetch",
+      "strategies_btc_options_bb_fetch_fetch_all_candles",
+      "strategies_btc_options_bb_fetch_get_current_strikes",
+      "strategies_btc_options_bb_fetch_main",
+      "strategies_btc_options_bb_fetch_py_dataframe",
+      "strategies_btc_options_bb_fetch_rationale_120",
+      "strategies_btc_options_bb_fetch_rationale_2",
+      "strategies_btc_options_bb_fetch_rationale_58",
+      "strategies_btc_options_bb_fetch_resolution_to_minutes",
+      "time"
+    ],
+    "5": [
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_calculate_adx",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_calculate_adx_calc_dx",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_calculate_bollinger_bands",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_calculate_ema",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_is_bearish_reversal_candle",
+      "strategies_btc_options_bb_strategy_bollingerbandsanalyzer_is_bullish_reversal_candle",
+      "strategies_btc_options_bb_strategy_optionsstrategy_analyze_option_strike",
+      "strategies_btc_options_bb_strategy_optionsstrategy_generate_signal_chart",
+      "strategies_btc_options_bb_strategy_rationale_224",
+      "strategies_btc_options_bb_strategy_rationale_228",
+      "strategies_btc_options_bb_strategy_rationale_258",
+      "strategies_btc_options_bb_strategy_rationale_272",
+      "strategies_btc_options_bb_strategy_rationale_313",
+      "strategies_btc_options_bb_strategy_rationale_354",
+      "strategies_btc_options_bb_strategy_rationale_577",
+      "strategies_btc_options_bb_strategy_rationale_677",
+      "strategies_btc_options_bb_strategy_tradingsignal"
+    ],
+    "6": [
+      "hashlib",
+      "hmac",
+      "matplotlib",
+      "matplotlib_gridspec",
+      "matplotlib_pyplot",
+      "mplfinance",
+      "numpy",
+      "pnl_analysis_analyse_pnl_delta_exchange",
+      "pnl_analysis_analyse_pnl_delta_exchange_analyze_data",
+      "strategies_btc_options_bb_strategy",
+      "strategies_btc_options_bb_strategy_rationale_2",
+      "threading",
+      "urllib_parse"
+    ],
+    "7": [
+      "strategies_btc_liquidity_sweep_init"
+    ],
+    "8": [
+      "strategies_btc_options_bb_init"
+    ]
+  },
+  "cohesion": {
+    "0": 0.10253699788583509,
+    "1": 0.07692307692307693,
+    "2": 0.14408602150537633,
+    "3": 0.12258064516129032,
+    "4": 0.12183908045977011,
+    "5": 0.1437908496732026,
+    "6": 0.16666666666666666,
+    "7": 1.0,
+    "8": 1.0
+  },
+  "gods": [
+    {
+      "id": "strategies_btc_options_bb_strategy_deltaexchangeapi",
+      "label": "DeltaExchangeAPI",
+      "degree": 16
+    },
+    {
+      "id": "strategies_btc_options_bb_strategy_optionsstrategy",
+      "label": "OptionsStrategy",
+      "degree": 15
+    },
+    {
+      "id": "strategies_btc_liquidity_sweep_run_backtest_main",
+      "label": "main()",
+      "degree": 13
+    },
+    {
+      "id": "strategies_btc_options_bb_atm_backtest_main",
+      "label": "main()",
+      "degree": 12
+    },
+    {
+      "id": "strategies_btc_options_bb_backtest_backtestparams",
+      "label": "BacktestParams",
+      "degree": 11
+    },
+    {
+      "id": "strategies_btc_options_bb_strategy_bollingerbandsanalyzer",
+      "label": "BollingerBandsAnalyzer",
+      "degree": 11
+    },
+    {
+      "id": "strategies_btc_options_bb_atm_backtest_run_atm_backtest",
+      "label": "run_atm_backtest()",
+      "degree": 11
+    },
+    {
+      "id": "strategies_btc_options_bb_optimizer_main",
+      "label": "main()",
+      "degree": 11
+    },
+    {
+      "id": "strategies_btc_liquidity_sweep_data_fetch_fetch_dte0_dataset",
+      "label": "fetch_dte0_dataset()",
+      "degree": 11
+    },
+    {
+      "id": "strategies_btc_liquidity_sweep_engine_run_backtest",
+      "label": "run_backtest()",
+      "degree": 10
+    }
+  ],
+  "surprises": [
+    {
+      "source": "fetch_all_candles()",
+      "target": "DeltaExchangeAPI",
+      "source_files": [
+        "strategies/btc_options_bb/fetch.py",
+        "strategies/btc_options_bb/strategy.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "get_current_strikes()",
+      "target": "DeltaExchangeAPI",
+      "source_files": [
+        "strategies/btc_options_bb/fetch.py",
+        "strategies/btc_options_bb/strategy.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "main()",
+      "target": "DeltaExchangeAPI",
+      "source_files": [
+        "strategies/btc_options_bb/fetch.py",
+        "strategies/btc_options_bb/strategy.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "get_current_strikes()",
+      "target": "OptionsStrategy",
+      "source_files": [
+        "strategies/btc_options_bb/fetch.py",
+        "strategies/btc_options_bb/strategy.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "main()",
+      "target": "CostModel",
+      "source_files": [
+        "strategies/btc_liquidity_sweep/run_backtest.py",
+        "strategies/btc_liquidity_sweep/costs.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "uses",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `DeltaExchangeAPI` connect `Community 1` to `Community 4`, `Community 6`?",
+      "why": "High betweenness centrality (0.148) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 3 inferred relationships involving `DeltaExchangeAPI` (e.g. with `fetch_all_candles()` and `get_current_strikes()`) actually correct?",
+      "why": "`DeltaExchangeAPI` has 3 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 0` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.10253699788583509 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `OptionsStrategy` connect `Community 1` to `Community 4`, `Community 5`, `Community 6`?",
+      "why": "High betweenness centrality (0.126) - this node is a cross-community bridge."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 1` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.07692307692307693 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `BollingerBandsAnalyzer` connect `Community 5` to `Community 0`, `Community 1`, `Community 6`?",
+      "why": "High betweenness centrality (0.108) - this node is a cross-community bridge."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 2` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.14408602150537633 - nodes in this community are weakly interconnected."
+    }
+  ]
+}

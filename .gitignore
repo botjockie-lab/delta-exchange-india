@@ -29,3 +29,6 @@ data/btc_liquidity_sweep/products_cache_BTC.json
 data/btc_liquidity_sweep/results/trades.csv
 data/btc_liquidity_sweep/results/equity.csv
 data/btc_liquidity_sweep/results/summary.json
+# Graphify
+graphify-out/cache/
+graphify-out/cost.json

@@ -1,0 +1,2 @@
+# Not code: keep out of the knowledge graph (graphify also honours .gitignore)
+data/

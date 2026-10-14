@@ -100,5 +100,17 @@
     "seen": 1791437604.379131,
     "ast_hash": "bcb14b277ac757886fd9ce180f14410c",
     "semantic_hash": "bcb14b277ac757886fd9ce180f14410c"
+  },
+  "README.md": {
+    "mtime": 1784352922.8600538,
+    "seen": 1791980462.2353282,
+    "ast_hash": "f84281591fa7df40c9e2fbaa4491466a",
+    "semantic_hash": ""
+  },
+  "requirements.txt": {
+    "mtime": 1778415151.9422534,
+    "seen": 1791980462.235329,
+    "ast_hash": "e5d117917700a452292dc38ed4a49c16",
+    "semantic_hash": ""
   }
 }
